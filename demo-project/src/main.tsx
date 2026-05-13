@@ -64,7 +64,7 @@ const App = defineComponent(() => {
                 // Title
                 Flex({ align: 'center', justify: 'space-between', wrap: 'wrap' },
                     Stack({ gap: '4px' },
-                        Heading({ level: 'h1' }, '🚀 AI-Native Admin'),
+                        Heading({ level: 'h1' }, '🚀 Sigil Admin'),
                         Text({ color: '#6b7280' }, '基于显式信号与静态分析的高性能框架 MVP')
                     ),
                     Flex({ gap: '8px' },

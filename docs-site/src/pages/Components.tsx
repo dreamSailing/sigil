@@ -10,7 +10,7 @@ export const ComponentsPage = defineComponent(() => {
     return () => h('div', { style: 'max-width: 900px; padding: 32px 0;' },
         h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '🧩 UI 组件'),
         h('p', { style: 'font-size: 16px; color: #6b7280; margin: 0 0 48px 0; line-height: 1.6;' },
-            '28+ 内置 UI 组件，零 CSS 依赖，纯内联样式，开箱即用'
+            '28 内置 UI 组件，零外部 CSS 文件，样式内联注入，开箱即用'
         ),
 
         // Layout
@@ -60,26 +60,30 @@ export const ComponentsPage = defineComponent(() => {
                 h('div', { style: 'font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 12px;' }, 'Card + Badge + Avatar'),
                 Card({ style: 'padding: 20px;' },
                     h('div', { style: 'display: flex; align-items: center; gap: 12px;' },
-                        Avatar({ name: 'User', size: '40px', color: '#3b82f6' }),
+                        Avatar({ name: 'User', size: 'md', color: '#3b82f6' }),
                         h('div', {},
                             h('div', { style: 'font-weight: 600; color: #111827;' }, '张三'),
                             h('div', { style: 'font-size: 13px; color: #6b7280;' }, '工程师')
                         ),
-                        Badge({ type: 'success' }, '在线'),
-                        Badge({ type: 'warning' }, 'VIP')
+                        Badge({ variant: 'success' }, '在线'),
+                        Badge({ variant: 'warning' }, 'VIP')
                     )
                 )
             ),
             h('div', { style: 'padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 16px;' },
                 h('div', { style: 'font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 12px;' }, 'Stat'),
                 h('div', { style: 'display: flex; gap: 24px;' },
-                    Stat({ label: '用户数', value: '12,345', trend: 'up' }),
-                    Stat({ label: '收入', value: '¥98,765', trend: 'down' })
+                    Stat({ label: '用户数', value: '12,345', accent: '#22c55e' }),
+                    Stat({ label: '收入', value: '¥98,765', accent: '#f59e0b' })
                 )
             ),
             h('div', { style: 'padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 16px;' },
                 h('div', { style: 'font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 12px;' }, 'EmptyState'),
-                EmptyState({ title: '暂无数据', description: '当前没有可用的数据' })
+                EmptyState({},
+                    h('div', { style: 'font-size: 32px; margin-bottom: 12px;' }, '📭'),
+                    h('div', { style: 'font-size: 16px; font-weight: 600; color: #6b7280; margin-bottom: 4px;' }, '暂无数据'),
+                    h('div', { style: 'font-size: 14px; color: #9ca3af;' }, '当前没有可用的数据')
+                )
             )
         ),
 
@@ -116,7 +120,7 @@ export const ComponentsPage = defineComponent(() => {
         // Feedback
         h('div', { style: 'margin-bottom: 64px;' },
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 8px 0;' }, '反馈组件'),
-            h('p', { style: 'font-size: 14px; color: #6b7280; margin: 0 0 24px 0;' }, 'Modal, Toast'),
+            h('p', { style: 'font-size: 14px; color: #6b7280; margin: 0 0 24px 0;' }, 'Modal, showToast, Tooltip'),
             h('div', { style: 'padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 16px;' },
                 h('div', { style: 'display: flex; gap: 8px;' },
                     Button({ variant: 'primary', onClick: function() { showModal.set(true); } }, '打开 Modal'),
@@ -129,18 +133,18 @@ export const ComponentsPage = defineComponent(() => {
         // Navigation
         h('div', { style: 'margin-bottom: 64px;' },
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 8px 0;' }, '导航组件'),
-            h('p', { style: 'font-size: 14px; color: #6b7280; margin: 0 0 24px 0;' }, 'Tabs, Pagination, Tooltip'),
+            h('p', { style: 'font-size: 14px; color: #6b7280; margin: 0 0 24px 0;' }, 'Tabs, Pagination'),
             h('div', { style: 'padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 16px;' },
                 h('div', { style: 'font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 12px;' }, 'Tabs'),
-                Tabs({ items: [
-                    { id: 'tab1', label: '标签一' },
-                    { id: 'tab2', label: '标签二' },
-                    { id: 'tab3', label: '标签三' }
-                ], active: 'tab1' })
+                Tabs({ tabs: [
+                    { label: '标签一', content: h('div', {}, '标签一内容') },
+                    { label: '标签二', content: h('div', {}, '标签二内容') },
+                    { label: '标签三', content: h('div', {}, '标签三内容') }
+                ], active: 0 })
             ),
             h('div', { style: 'padding: 24px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 16px;' },
                 h('div', { style: 'font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 12px;' }, 'Pagination'),
-                Pagination({ current: 2, total: 10 })
+                Pagination({ page: 2, total: 10 })
             )
         ),
     );

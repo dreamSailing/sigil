@@ -55,7 +55,7 @@ sig serve --port 3000
 
 Importing from multiple packages to render a simple UI increases the chance of picking the wrong API.
 
-**Sigil's answer**: 28 UI components from a single `/@ui` import. Zero external CSS — pure inline styles.
+**Sigil's answer**: 28 UI components from a single `/@ui` import. Zero external CSS files — styles injected inline at runtime.
 
 ## Quick start
 
@@ -118,19 +118,21 @@ sig build --output dist
 | `computed<T>(getter)` | Derived value with automatic dependency tracking |
 | `effect(fn)` | Side effect with auto-tracking, returns dispose function |
 | `defineComponent(fn)` | Define a reactive component |
+| `onMount(fn)` | Register mount callback inside component |
+| `onUnmount(fn)` | Register unmount callback inside component |
 | `h(tag, props?, ...children)` | Create DOM element or call component |
 
 Full API reference: [Documentation Site](http://localhost:3000/#api)
 
 ## SigUI
 
-28 built-in components, zero CSS dependencies:
+28 built-in components, zero external CSS files:
 
 | Category | Components |
 |----------|-----------|
 | Layout | Container, Flex, Grid, Stack, Divider |
 | Typography | Heading, Text |
-| Data | Card, Badge, Avatar, Stat, Table, EmptyState |
+| Data | Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, EmptyState |
 | Form | Button, Input, Textarea, SearchInput, Checkbox, Select |
 | Feedback | Modal, showToast, Tooltip |
 | Navigation | Tabs, Pagination |
@@ -200,7 +202,7 @@ sig serve --port 3000
 
 ### 痛点四：API 层次过深
 
-**Sigil 的答案**：28 个组件从单一 `/@ui` 导入，零 CSS 依赖。
+**Sigil 的答案**：28 个组件从单一 `/@ui` 导入，零外部 CSS 文件，样式内联注入。
 
 ## 快速开始
 
@@ -221,11 +223,13 @@ sig serve --port 3000
 | **computed** | 派生值，自动追踪依赖 |
 | **effect** | 副作用，自动追踪 signal 依赖 |
 | **defineComponent** | 定义响应式组件 |
+| **onMount** | 组件挂载回调 |
+| **onUnmount** | 组件卸载回调 |
 | **h()** | 创建 DOM 元素 |
 
 ## SigUI 组件库
 
-28 个组件，零 CSS 依赖：Container, Flex, Grid, Stack, Heading, Text, Card, Button, Input, Textarea, Badge, Avatar, Stat, Table, Checkbox, Divider, EmptyState, SearchInput, Modal, showToast, Tooltip, Tabs, Select, Pagination, Separator
+28 个组件，零外部 CSS 文件：Container, Flex, Grid, Stack, Heading, Text, Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, Checkbox, Divider, EmptyState, SearchInput, Modal, showToast, Tooltip, Tabs, Select, Pagination, Separator
 
 ## 贡献
 

@@ -35,9 +35,9 @@ function css(obj) {
 
 // --- Global styles ---
 (function injectGlobalStyles() {
-    if (document.getElementById('ai-ui-global')) return;
+    if (document.getElementById('sigil-global')) return;
     const style = document.createElement('style');
-    style.id = 'ai-ui-global';
+    style.id = 'sigil-global';
     const bg = theme.colors.gray[50];
     const fg = theme.colors.gray[900];
     style.textContent = [
@@ -45,8 +45,8 @@ function css(obj) {
         'body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: ' + fg + '; background: ' + bg + '; line-height: 1.5; }',
         'input, button, textarea, select { font: inherit; }',
         'button { cursor: pointer; border: none; outline: none; }',
-        '@media (max-width: 640px) { .ai-responsive-grid { grid-template-columns: 1fr !important; } }',
-        '@media (max-width: 768px) { .ai-responsive-flex { flex-direction: column !important; gap: ' + theme.spacing[3] + ' !important; } }',
+        '@media (max-width: 640px) { .sigil-responsive-grid { grid-template-columns: 1fr !important; } }',
+        '@media (max-width: 768px) { .sigil-responsive-flex { flex-direction: column !important; gap: ' + theme.spacing[3] + ' !important; } }',
         '@keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }',
     ].join('\n');
     document.head.appendChild(style);
@@ -78,7 +78,7 @@ export function Grid(props, ...children) {
         ? 'repeat(auto-fill, minmax(min(' + Math.floor(100 / cols) + '%, 280px), 1fr))'
         : 'repeat(' + cols + ', 1fr)';
     return h('div', {
-        className: responsive ? 'ai-responsive-grid' : undefined,
+        className: responsive ? 'sigil-responsive-grid' : undefined,
         style: css(mergeStyle({ display: 'grid', gridTemplateColumns: templateCols, gap: p.gap || theme.spacing[6] }, p.style))
     }, ...children);
 }

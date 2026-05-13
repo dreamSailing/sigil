@@ -9,14 +9,14 @@ export const GuidePage = defineComponent(() => {
         h('div', { style: 'margin-bottom: 64px;' },
             h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '🚀 快速开始'),
             h('p', { style: 'font-size: 16px; color: #6b7280; margin: 0 0 32px 0; line-height: 1.6;' },
-                '5 分钟内搭建你的第一个 AI-Native 应用'
+                '5 分钟内搭建你的第一个 Sigil 应用'
             ),
 
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 16px 0;' }, '1. 安装'),
             h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 12px 0;' },
-                'AI-Native 使用 Rust 构建，通过 Cargo 安装：'
+                'Sigil 使用 Rust 构建，通过 Cargo 安装：'
             ),
-            h(CodeBlock, { lang: 'bash', code: 'cargo install --path /path/to/ai-native-framework' }),
+            h(CodeBlock, { lang: 'bash', code: 'cargo install --path /path/to/sigil' }),
 
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 32px 0 16px 0;' }, '2. 创建项目'),
             h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 12px 0;' },
@@ -37,7 +37,7 @@ export const GuidePage = defineComponent(() => {
                     'const App = defineComponent(() => {\n',
                     '  const count = signal(0)\n\n',
                     '  return () => h("div", { style: "padding: 40px;" },\n',
-                    '    Heading({ level: "h1" }, "Hello AI-Native!"),\n',
+                    '    Heading({ level: "h1" }, "Hello Sigil!"),\n',
                     '    Text({}, "Count: " + count.get()),\n',
                     '    Button({ onClick: () => count.set(count.get() + 1) },\n',
                     '      "Increment"\n',

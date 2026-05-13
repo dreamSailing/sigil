@@ -9,7 +9,7 @@ export const ConceptsPage = defineComponent(() => {
     return () => h('div', { style: 'max-width: 800px; padding: 32px 0;' },
         h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '💡 核心概念'),
         h('p', { style: 'font-size: 16px; color: #6b7280; margin: 0 0 48px 0; line-height: 1.6;' },
-            '理解 AI-Native 框架的四个核心原语'
+            '理解 Sigil 框架的四个核心原语'
         ),
 
         // Signal

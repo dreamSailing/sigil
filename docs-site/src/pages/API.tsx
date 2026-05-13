@@ -7,7 +7,7 @@ export const ApiPage = defineComponent(() => {
     return () => h('div', { style: 'max-width: 800px; padding: 32px 0;' },
         h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '📖 API 参考'),
         h('p', { style: 'font-size: 16px; color: #6b7280; margin: 0 0 48px 0; line-height: 1.6;' },
-            'AI-Native 框架完整 API 文档'
+            'Sigil 框架完整 API 文档'
         ),
 
         // signal
@@ -90,6 +90,28 @@ export const ApiPage = defineComponent(() => {
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 16px 0;' }, 'errorBoundary'),
             h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 16px 0;' }, '错误边界包装器，捕获组件渲染错误' ),
             h(CodeBlock, { lang: 'typescript', code: 'function errorBoundary(fn: Function): Function' }),
+        ),
+
+        // onMount / onUnmount
+        h('div', { style: 'margin-bottom: 64px;' },
+            h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 16px 0;' }, 'onMount / onUnmount'),
+            h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 16px 0;' }, '组件生命周期钩子，必须在 defineComponent 回调内调用' ),
+            h(CodeBlock, { lang: 'typescript', code: 'function onMount(fn: () => void): void\nfunction onUnmount(fn: () => void): void' }),
+            h('p', { style: 'font-size: 15px; color: #4b5563; margin: 16px 0 8px 0;' }, '说明：' ),
+            h('ul', { style: 'font-size: 15px; color: #4b5563; line-height: 1.8; padding-left: 20px;' },
+                h('li', {}, 'onMount — 组件 DOM 插入文档后触发'),
+                h('li', {}, 'onUnmount — 组件 DOM 从文档移除后触发'),
+                h('li', {}, '在 defineComponent 外部调用会被忽略'),
+            ),
+        ),
+
+        // reactiveTemplate
+        h('div', { style: 'margin-bottom: 64px;' },
+            h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 0 0 16px 0;' }, 'reactiveTemplate'),
+            h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 16px 0;' }, '模板标签函数，自动解包 signal 值生成响应式字符串' ),
+            h(CodeBlock, { lang: 'typescript', code: 'function reactiveTemplate(strings: TemplateStringsArray, ...values: any[]): ReactiveTemplate' }),
+            h('p', { style: 'font-size: 15px; color: #4b5563; margin: 16px 0 8px 0;' }, '示例：' ),
+            h(CodeBlock, { lang: 'tsx', code: "const name = signal('World');\nconst tpl = reactiveTemplate`Hello ${name}!`;\n// tpl._resolve() => 'Hello World!'" }),
         ),
     );
 });
