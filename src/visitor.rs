@@ -343,10 +343,27 @@ impl JsxVisitor {
             })
             .collect();
 
+        // Fragment expects props object with children array: Fragment({ children: [...] })
+        let children_array = Expr::Array(ArrayLit {
+            span: frag.span,
+            elems: children.into_iter().map(|c| Some(c)).collect(),
+        });
+
+        let props_obj = Expr::Object(ObjectLit {
+            span: frag.span,
+            props: vec![PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                key: PropName::Ident(Ident::new("children".into(), frag.span)),
+                value: Box::new(children_array),
+            })))],
+        });
+
         Expr::Call(CallExpr {
             span: frag.span,
             callee: Callee::Expr(Box::new(Expr::Ident(Ident::new("Fragment".into(), frag.span)))),
-            args: children,
+            args: vec![ExprOrSpread {
+                spread: None,
+                expr: Box::new(props_obj),
+            }],
             type_args: None,
         })
     }

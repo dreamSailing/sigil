@@ -110,7 +110,10 @@ fn scaffold_project(name: &str) -> Result<()> {
     // Create main.tsx
     fs::write(
         project_dir.join("src/main.tsx"),
-        r#"export const App = defineComponent(() => {
+        r#"import { signal, defineComponent, h, onMount } from '/@runtime';
+import { Button } from '/@ui';
+
+export const App = defineComponent(() => {
     const count = signal(0);
 
     onMount(() => {

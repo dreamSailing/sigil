@@ -425,6 +425,7 @@ export function h(tag, props, ...children) {
 
     const el = document.createElement(tag);
     const eventListeners = [];
+    const signalEffects = []; // Track effects for cleanup
 
     if (props) {
         Object.keys(props).forEach(key => {
@@ -450,16 +451,18 @@ export function h(tag, props, ...children) {
             } else if (key === 'data-key') {
                 el[NODE_KEY] = value;
             } else if (typeof value === 'object' && value !== null && value.get && !value._isTemplate) {
-                // Reactive attribute (signal)
+                // Reactive attribute (signal) - with effect tracking for cleanup
                 if (key === 'value' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
                     el.value = value.get();
-                    effect(() => {
+                    const dispose = effect(() => {
                         const v = value.get();
                         if (document.activeElement !== el) el.value = v;
                     });
+                    signalEffects.push(dispose);
                 } else {
                     el.setAttribute(key, value.get());
-                    effect(() => el.setAttribute(key, value.get()));
+                    const dispose = effect(() => el.setAttribute(key, value.get()));
+                    signalEffects.push(dispose);
                 }
             } else if (value !== undefined && value !== null && typeof value !== 'function') {
                 el.setAttribute(key, value);
@@ -467,9 +470,12 @@ export function h(tag, props, ...children) {
         });
     }
 
-    // Store event listeners for potential cleanup
+    // Store event listeners and effects for potential cleanup
     if (eventListeners.length > 0) {
         el._eventListeners = eventListeners;
+    }
+    if (signalEffects.length > 0) {
+        el._signalEffects = signalEffects;
     }
 
     children.flat().forEach(child => {
@@ -479,11 +485,16 @@ export function h(tag, props, ...children) {
         } else if (typeof child === 'object' && child !== null && child.get && !child._isTemplate) {
             const textNode = document.createTextNode(child.get());
             el.appendChild(textNode);
-            effect(() => { textNode.textContent = child.get(); });
+            const dispose = effect(() => { textNode.textContent = child.get(); });
+            // Track effect on parent element
+            if (!el._signalEffects) el._signalEffects = [];
+            el._signalEffects.push(dispose);
         } else if (typeof child === 'object' && child !== null && child._isTemplate) {
             const tplNode = document.createTextNode(child._resolve());
             el.appendChild(tplNode);
-            effect(() => { tplNode.textContent = child._resolve(); });
+            const dispose = effect(() => { tplNode.textContent = child._resolve(); });
+            if (!el._signalEffects) el._signalEffects = [];
+            el._signalEffects.push(dispose);
         } else if (child instanceof HTMLElement || (child instanceof Element && child._isFragment)) {
             el.appendChild(child);
         }

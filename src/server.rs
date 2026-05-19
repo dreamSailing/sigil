@@ -71,10 +71,12 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
             }
         };
         if let Err(e) = watcher.watch(&watch_src_clone, RecursiveMode::Recursive) {
-            eprintln!("⚠️  Failed to watch src dir: {:?}, hot-reload disabled", e);
-            return;
+            eprintln!("⚠️  Failed to watch src directory: {:?}", e);
+            eprintln!("   Hot-reload will be disabled. Check that the src/ directory exists.");
+            // Don't return - keep watcher alive even if watch fails
+        } else {
+            println!("👀 Watching: {}", watch_src_clone.display());
         }
-        println!("👀 Watching: {}", watch_src_clone.display());
         // Keep watcher alive
         tokio::signal::ctrl_c().await.ok();
     });

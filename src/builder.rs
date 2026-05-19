@@ -159,7 +159,9 @@ fn minify_js(code: &str) -> String {
     let mut in_template = false;
     let mut in_single_comment = false;
     let mut in_block_comment = false;
+    let mut in_regex = false;
     let mut last_was_newline = false;
+    let mut last_significant_char = ' ';
 
     while let Some(c) = chars.next() {
         // Skip newlines and excess whitespace
@@ -180,7 +182,7 @@ fn minify_js(code: &str) -> String {
                 continue;
             }
             // Collapse multiple spaces
-            if result.ends_with(' ') && !in_single_quote && !in_double_quote && !in_template {
+            if result.ends_with(' ') && !in_single_quote && !in_double_quote && !in_template && !in_regex {
                 continue;
             }
             result.push(c);
@@ -189,18 +191,79 @@ fn minify_js(code: &str) -> String {
 
         last_was_newline = false;
 
-        // Single-line comment
-        if c == '/' && !in_single_quote && !in_double_quote && !in_template && !in_block_comment {
-            if chars.peek() == Some(&'/') {
-                chars.next();
-                in_single_comment = true;
+        // Detect regex start: / should only start regex after certain chars
+        if c == '/' && !in_single_quote && !in_double_quote && !in_template && !in_block_comment && !in_single_comment && !in_regex {
+            // Check if this could be a regex (not division)
+            let could_be_regex = matches!(last_significant_char, '(' | ',' | '=' | ':' | '[' | '!' | '&' | '|' | '?' | '{' | ';' | '>' | '<' | '+' | '-' | '*' | '%' | '^' | '~' | '\n' | '\r' | ' ');
+            
+            if could_be_regex {
+                // Check for regex patterns
+                if chars.peek() == Some(&'/') {
+                    // Single-line comment
+                    chars.next();
+                    in_single_comment = true;
+                    continue;
+                }
+                if chars.peek() == Some(&'*') {
+                    // Block comment
+                    chars.next();
+                    in_block_comment = true;
+                    continue;
+                }
+                
+                // Could be a regex literal
+                in_regex = true;
+                result.push(c);
+                last_significant_char = c;
+                continue;
+            } else {
+                // Division operator, not a regex
+                result.push(c);
+                last_significant_char = c;
                 continue;
             }
-            if chars.peek() == Some(&'*') {
-                chars.next();
-                in_block_comment = true;
-                continue;
+        }
+
+        // Handle regex content
+        if in_regex {
+            result.push(c);
+            last_significant_char = c;
+            
+            if c == '/' {
+                // End of regex, check for flags
+                while let Some(&next) = chars.peek() {
+                    if next.is_ascii_alphabetic() {
+                        chars.next();
+                        result.push(next);
+                        last_significant_char = next;
+                    } else {
+                        break;
+                    }
+                }
+                in_regex = false;
+            } else if c == '\\' {
+                // Escape next character in regex
+                if let Some(escaped) = chars.next() {
+                    result.push(escaped);
+                    last_significant_char = escaped;
+                }
+            } else if c == '[' {
+                // Character class in regex - don't treat / as comment
+                while let Some(cc) = chars.next() {
+                    result.push(cc);
+                    last_significant_char = cc;
+                    if cc == ']' {
+                        break;
+                    }
+                    if cc == '\\' {
+                        if let Some(escaped) = chars.next() {
+                            result.push(escaped);
+                            last_significant_char = escaped;
+                        }
+                    }
+                }
             }
+            continue;
         }
 
         // End block comment
@@ -215,17 +278,18 @@ fn minify_js(code: &str) -> String {
         }
 
         // String tracking
-        if c == '\'' && !in_double_quote && !in_template {
+        if c == '\'' && !in_double_quote && !in_template && !in_regex {
             in_single_quote = !in_single_quote;
         }
-        if c == '"' && !in_single_quote && !in_template {
+        if c == '"' && !in_single_quote && !in_template && !in_regex {
             in_double_quote = !in_double_quote;
         }
-        if c == '`' && !in_single_quote && !in_double_quote {
+        if c == '`' && !in_single_quote && !in_double_quote && !in_regex {
             in_template = !in_template;
         }
 
         result.push(c);
+        last_significant_char = c;
     }
 
     // Remove trailing whitespace
