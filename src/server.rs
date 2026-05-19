@@ -237,8 +237,25 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
         .fallback_service(ServeDir::new(root_dir))
         .layer(CompressionLayer::new());
 
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
-    println!("✅ Ready! Open http://localhost:{}", port);
+    // Bind to port with auto-increment on conflict (max 10 attempts)
+    let mut bind_port = port;
+    let max_attempts = 10;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(format!("127.0.0.1:{}", bind_port)).await {
+            Ok(listener) => break listener,
+            Err(e) if bind_port < port + max_attempts => {
+                eprintln!("⚠️  Port {} is in use: {}, trying {}...", bind_port, e, bind_port + 1);
+                bind_port += 1;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
+    
+    if bind_port != port {
+        println!("✅ Ready! Open http://localhost:{} (auto-selected)", bind_port);
+    } else {
+        println!("✅ Ready! Open http://localhost:{}", port);
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }
