@@ -27,8 +27,27 @@ struct CacheEntry {
 
 pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
     let src_dir = root_dir.join("src");
-    let runtime_path = std::env::current_dir()?.join("runtime/runtime.js");
-    let ui_path = std::env::current_dir()?.join("runtime/ui.js");
+    
+    // Locate runtime files relative to the binary
+    // Binary is at target/release/sig, runtime is at project_root/runtime/
+    let project_root = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            let target = p.parent()?.parent()?.parent()?;
+            Some(target.to_path_buf())
+        });
+    
+    let runtime_path = project_root
+        .as_ref()
+        .map(|p| p.join("runtime/runtime.js"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/runtime.js"));
+    
+    let ui_path = project_root
+        .as_ref()
+        .map(|p| p.join("runtime/ui.js"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/ui.js"));
 
     // File watcher broadcast channel
     let (reload_tx, _) = broadcast::channel::<()>(16);

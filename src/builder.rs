@@ -84,8 +84,25 @@ pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
     let runtime_dir = output_dir.join("runtime");
     fs::create_dir_all(&runtime_dir)?;
 
-    let runtime_src = std::env::current_dir()?.join("runtime/runtime.js");
-    let ui_src = std::env::current_dir()?.join("runtime/ui.js");
+    // Locate runtime files relative to the binary
+    let project_root = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            let target = p.parent()?.parent()?.parent()?;
+            Some(target.to_path_buf())
+        });
+    
+    let runtime_src = project_root
+        .as_ref()
+        .map(|p| p.join("runtime/runtime.js"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/runtime.js"));
+    
+    let ui_src = project_root
+        .as_ref()
+        .map(|p| p.join("runtime/ui.js"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/ui.js"));
 
     if runtime_src.exists() {
         let content = fs::read_to_string(&runtime_src)?;
