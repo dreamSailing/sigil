@@ -36,7 +36,8 @@ impl ErrorCapturer {
 
 impl Emitter for ErrorCapturer {
     fn emit(&mut self, db: &DiagnosticBuilder<'_>) {
-        let mut lock = self.errors.lock().unwrap();
+        // C3 fix: Handle poisoned mutex gracefully
+        let mut lock = self.errors.lock().unwrap_or_else(|e| e.into_inner());
         let message = if let Some(span) = db.span.primary_span() {
             let loc = self.cm.lookup_char_pos(span.lo());
             format!("[{}:{}:{}] {}", loc.file.name, loc.line, loc.col_display + 1, db.message[0].0)
@@ -221,21 +222,23 @@ pub fn rewrite_local_imports(code: &str) -> String {
             .or_else(|| raw_path.strip_suffix(".jsx"))
             .or_else(|| raw_path.strip_suffix(".js"))
             .unwrap_or(raw_path);
-        
+
         // Normalize path: properly handle ./ and ../ prefixes
+        // Preserve the actual path structure, just remove leading ./ or ../
         let normalized = if clean.starts_with("../") {
-            // Count the depth and strip all ../ prefixes
+            // Strip all leading ../ prefixes but preserve the rest of the path
             let mut path = clean;
             while path.starts_with("../") {
                 path = &path[3..];
             }
+            // path now contains the actual module path (e.g., "utils/helpers" from "../../utils/helpers")
             path.to_string()
         } else if clean.starts_with("./") {
             clean[2..].to_string()
         } else {
             clean.trim_start_matches("/").to_string()
         };
-        
+
         format!("from '/src/{}'", normalized)
     }).to_string()
 }

@@ -156,12 +156,12 @@ export function Input(props) {
     var p = props || {};
     var inputProps = {
         type: p.type || 'text',
-        style: css({
+        style: css(mergeStyle({
             width: '100%', padding: theme.spacing[3] + ' ' + theme.spacing[4],
             border: '1px solid ' + theme.colors.gray[300], borderRadius: theme.radii.md,
             fontSize: theme.fontSizes.base, color: theme.colors.gray[900],
             background: theme.colors.white, outline: 'none',
-        }),
+        }, typeof p.style === 'object' ? p.style : {})),
     };
     var keys = Object.keys(p);
     for (var i = 0; i < keys.length; i++) {
@@ -177,14 +177,14 @@ export function Input(props) {
 export function Textarea(props) {
     var p = props || {};
     var textareaProps = {
-        style: css({
+        style: css(mergeStyle({
             width: '100%', padding: theme.spacing[3] + ' ' + theme.spacing[4],
             border: '1px solid ' + theme.colors.gray[300], borderRadius: theme.radii.md,
             fontSize: theme.fontSizes.base, color: theme.colors.gray[900],
             background: theme.colors.white, outline: 'none',
             fontFamily: 'inherit', resize: p.resize || 'vertical',
             minHeight: p.minHeight || '80px',
-        }),
+        }, typeof p.style === 'object' ? p.style : {})),
     };
     var keys = Object.keys(p);
     for (var i = 0; i < keys.length; i++) {
@@ -439,14 +439,25 @@ export function Tabs(props) {
 export function Select(props) {
     var p = props || {};
     var options = p.options || [];
-    return h('select', mergeStyle({
+    var selectProps = {
         style: css({
             width: p.width || '100%', padding: theme.spacing[3] + ' ' + theme.spacing[4],
             border: '1px solid ' + theme.colors.gray[300], borderRadius: theme.radii.md,
             fontSize: theme.fontSizes.base, color: theme.colors.gray[900],
             background: theme.colors.white, outline: 'none', cursor: 'pointer',
         }),
-    }, p),
+    };
+    // Merge only valid HTML attributes, exclude component-specific props
+    var keys = Object.keys(p);
+    for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (k !== 'style' && k !== 'options' && k !== 'width' && !k.startsWith('on')) {
+            selectProps[k] = p[k];
+        } else if (k.startsWith('on') && typeof p[k] === 'function') {
+            selectProps[k] = p[k];
+        }
+    }
+    return h('select', selectProps,
         options.map(function(opt) {
             var val = typeof opt === 'string' ? opt : opt.value;
             var label = typeof opt === 'string' ? opt : opt.label;

@@ -56,6 +56,17 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
     // Compilation cache: path -> CacheEntry
     let cache: Arc<Mutex<HashMap<String, CacheEntry>>> = Arc::new(Mutex::new(HashMap::new()));
 
+    // Canonicalize src_dir once at startup (H1 fix)
+    let canonical_src_dir = match src_dir.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("⚠️  Failed to canonicalize src directory: {:?}", e);
+            eprintln!("   Path traversal protection may not work correctly.");
+            src_dir.clone()
+        }
+    };
+    let canonical_src_dir = Arc::new(canonical_src_dir);
+
     // Start file watcher (invalidates only changed file cache entries)
     let watcher_tx = reload_tx.clone();
     let watch_src_clone = src_dir.clone();
@@ -71,7 +82,8 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                             // Only invalidate the specific changed file
                             if let Ok(relative) = path.strip_prefix(&watch_prefix) {
                                 let key = relative.to_string_lossy().to_string();
-                                let mut cache = cache_clone.lock().unwrap();
+                                // C3 fix: Handle poisoned mutex
+                                let mut cache = cache_clone.lock().unwrap_or_else(|e| e.into_inner());
                                 if cache.remove(&key).is_some() {
                                     println!("♻️  Cache invalidated: {}", key);
                                 }
@@ -130,26 +142,25 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
     // TSX compilation handler with cache
     let cache_clone2 = cache.clone();
     let src_dir_clone = src_dir.clone();
+    let canonical_src_dir_clone = canonical_src_dir.clone();
     let compile_route = get(move |Path(file): Path<String>| {
         let src = src_dir_clone.clone();
+        let canonical_src = canonical_src_dir_clone.clone();
         let c = cache_clone2.clone();
         async move {
             let full_path = src.join(&file);
-            
+
             // Security: Prevent path traversal attacks
-            // Canonicalize both paths and verify the result is within src_dir
+            // Canonicalize path and verify the result is within src_dir
             let canonical_path = match full_path.canonicalize() {
                 Ok(p) => p,
-                Err(_) => {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Response::builder()
                         .status(StatusCode::NOT_FOUND)
                         .header(header::CONTENT_TYPE, "text/plain")
                         .body(Body::from("File not found"))
                         .expect("response build failed");
                 }
-            };
-            let canonical_src = match src.canonicalize() {
-                Ok(p) => p,
                 Err(_) => {
                     return Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -158,19 +169,11 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                         .expect("response build failed");
                 }
             };
-            if !canonical_path.starts_with(&canonical_src) {
+            if !canonical_path.starts_with(&*canonical_src) {
                 return Response::builder()
                     .status(StatusCode::FORBIDDEN)
                     .header(header::CONTENT_TYPE, "text/plain")
                     .body(Body::from("Access denied"))
-                    .expect("response build failed");
-            }
-
-            if !canonical_path.exists() {
-                return Response::builder()
-                    .status(StatusCode::NOT_FOUND)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .body(Body::from("File not found"))
                     .expect("response build failed");
             }
 
@@ -194,9 +197,9 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                 hasher.finish()
             });
 
-            // Check cache
+            // Check cache (C3 fix: handle poisoned mutex)
             {
-                let guard = c.lock().unwrap();
+                let guard = c.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(entry) = guard.get(&file) {
                     if entry.etag == etag {
                         return Response::builder()
@@ -218,7 +221,7 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
             match result {
                 Ok(Ok(compiled)) => {
                     // Store in cache (only JS, source map is inlined)
-                    c.lock().unwrap().insert(file_key, CacheEntry { js: compiled.js.clone(), etag: etag_key });
+                    c.lock().unwrap_or_else(|e| e.into_inner()).insert(file_key, CacheEntry { js: compiled.js.clone(), etag: etag_key });
                     Response::builder()
                         .header(header::CONTENT_TYPE, "application/javascript")
                         .header(header::CACHE_CONTROL, "no-cache")

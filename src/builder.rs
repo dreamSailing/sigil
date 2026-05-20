@@ -61,6 +61,14 @@ pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
             // For non-TSX files, still apply basic minification
             minify_js(&compiler::rewrite_local_imports(&source))
         };
+        
+        // Replace /@runtime and /@ui paths in compiled JS for production
+        let compiled = compiled
+            .replace("from '/@runtime'", "from './runtime/runtime.js'")
+            .replace("from '/@ui'", "from './runtime/ui.js'")
+            .replace("from \"/@runtime\"", "from \"./runtime/runtime.js\"")
+            .replace("from \"/@ui\"", "from \"./runtime/ui.js\"");
+        
         let minified_size = compiled.len();
 
         let js_path = {
@@ -123,6 +131,14 @@ pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
             format_size(content.len()), format_size(minified.len()));
     }
 
+    // Copy public directory if it exists (M4 fix)
+    let public_dir = root_dir.join("public");
+    if public_dir.exists() {
+        println!("📁 Copying public/ directory...");
+        copy_dir_all(&public_dir, output_dir)?;
+        println!("✅ Copied public/ directory");
+    }
+
     // Build summary
     let savings = if total_original > 0 {
         ((1.0 - total_minified as f64 / total_original as f64) * 100.0) as u32
@@ -150,6 +166,27 @@ fn format_size(bytes: usize) -> String {
     } else {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     }
+}
+
+/// Recursively copy a directory (M4 fix helper)
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    use std::fs;
+    
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        
+        if ty.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+            println!("  📄 Copied {}", entry.file_name().to_string_lossy());
+        }
+    }
+    Ok(())
 }
 
 /// Strip the SSE live reload script from HTML for production
