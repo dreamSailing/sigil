@@ -20,7 +20,10 @@ function test_signal_notifies_subscribers() {
     if (!notified) throw new Error('effect should run immediately');
     notified = false;
     s.set(10);
-    if (!notified) throw new Error('effect should re-run after signal change');
+    // Batch updates are now async, wait for microtask
+    return Promise.resolve().then(() => {
+        if (!notified) throw new Error('effect should re-run after signal change');
+    });
 }
 
 function test_signal_only_notifies_on_change() {
@@ -31,7 +34,10 @@ function test_signal_only_notifies_on_change() {
     s.set(5);
     if (count !== initial) throw new Error('effect should not re-run for same value');
     s.set(10);
-    if (count <= initial) throw new Error('effect should re-run for different value');
+    // Wait for microtask
+    return Promise.resolve().then(() => {
+        if (count <= initial) throw new Error('effect should re-run for different value');
+    });
 }
 
 function test_computed_derives_value() {
@@ -40,7 +46,10 @@ function test_computed_derives_value() {
     const sum = computed(() => a.get() + b.get());
     if (sum.get() !== 5) throw new Error('computed should be 2+3=5');
     a.set(10);
-    if (sum.get() !== 13) throw new Error('computed should update to 10+3=13');
+    // Wait for microtask
+    return Promise.resolve().then(() => {
+        if (sum.get() !== 13) throw new Error('computed should update to 10+3=13');
+    });
 }
 
 function test_computed_is_readonly() {
@@ -62,7 +71,12 @@ function test_computed_chained() {
     const squared = computed(() => doubled.get() * doubled.get());
     if (squared.get() !== 16) throw new Error('chained computed: 2*2*2*2=16');
     base.set(3);
-    if (squared.get() !== 36) throw new Error('chained computed after update: 3*2*3*2=36');
+    // Chained computed needs multiple microtasks to propagate
+    return Promise.resolve().then(() => {
+        return Promise.resolve().then(() => {
+            if (squared.get() !== 36) throw new Error('chained computed after update: 3*2*3*2=36, got ' + squared.get());
+        });
+    });
 }
 
 function test_effect_cleanup() {
@@ -70,7 +84,9 @@ function test_effect_cleanup() {
     let cleanupCount = 0;
     effect((onCleanup) => { s.get(); onCleanup(() => { cleanupCount++; }); });
     s.set(1);
-    if (cleanupCount !== 1) throw new Error('cleanup should run on re-run: ' + cleanupCount);
+    return Promise.resolve().then(() => {
+        if (cleanupCount !== 1) throw new Error('cleanup should run on re-run: ' + cleanupCount);
+    });
 }
 
 function test_effect_dispose() {
@@ -107,7 +123,9 @@ function test_h_reactive_prop() {
     const el = h('div', { title: s });
     if (el.getAttribute('title') !== 'hello') throw new Error('title should be hello');
     s.set('world');
-    if (el.getAttribute('title') !== 'world') throw new Error('title should update to world');
+    return Promise.resolve().then(() => {
+        if (el.getAttribute('title') !== 'world') throw new Error('title should update to world');
+    });
 }
 
 function test_h_class_name_object() {
@@ -314,9 +332,39 @@ const tests = [
 
 let passed = 0, failed = 0;
 console.log('\nRuntime Tests:');
-for (const test of tests) {
-    try { test(); console.log('  ✓ ' + test.name); passed++; }
-    catch (e) { console.error('  ✗ ' + test.name + ': ' + e.message); failed++; }
+
+function runTests(tests, index) {
+    if (index >= tests.length) {
+        console.log('\n' + passed + ' passed, ' + failed + ' failed');
+        if (failed > 0) process.exit(1);
+        return;
+    }
+    
+    var test = tests[index];
+    try {
+        var result = test();
+        
+        // Check if test returned a promise
+        if (result && typeof result.then === 'function') {
+            result.then(function() {
+                console.log('  ✓ ' + test.name);
+                passed++;
+                runTests(tests, index + 1);
+            }).catch(function(e) {
+                console.error('  ✗ ' + test.name + ': ' + e.message);
+                failed++;
+                runTests(tests, index + 1);
+            });
+        } else {
+            console.log('  ✓ ' + test.name);
+            passed++;
+            runTests(tests, index + 1);
+        }
+    } catch (e) {
+        console.error('  ✗ ' + test.name + ': ' + e.message);
+        failed++;
+        runTests(tests, index + 1);
+    }
 }
-console.log('\n' + passed + ' passed, ' + failed + ' failed');
-if (failed > 0) process.exit(1);
+
+runTests(tests, 0);

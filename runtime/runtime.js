@@ -10,6 +10,87 @@ const trackingStack = [];
 let currentComponent = null;
 const lifecycleStack = [];
 
+// Batch update mechanism
+let isBatching = false;
+let batchQueue = [];
+let batchSet = new Set();  // O(1) dedup
+let batchScheduled = false;
+
+export function batch(fn) {
+    if (isBatching) {
+        return fn();
+    }
+    
+    isBatching = true;
+    var prevQueue = batchQueue;
+    var prevSet = batchSet;
+    batchQueue = [];
+    batchSet = new Set();
+    
+    try {
+        fn();
+        // Flush all queued effects, including any added during flush
+        while (batchQueue.length > 0) {
+            var currentQueue = batchQueue;
+            batchQueue = [];
+            for (var i = 0; i < currentQueue.length; i++) {
+                try {
+                    currentQueue[i]();
+                } catch (e) {
+                    devWarn('Error in batched effect: ' + e.message);
+                }
+            }
+        }
+    } finally {
+        isBatching = false;
+        batchQueue = prevQueue;
+        batchSet = prevSet;
+    }
+}
+
+function scheduleEffect(effectFn) {
+    if (isBatching) {
+        // O(1) dedup using Set
+        if (!batchSet.has(effectFn)) {
+            batchSet.add(effectFn);
+            batchQueue.push(effectFn);
+        }
+    } else if (!batchScheduled) {
+        batchScheduled = true;
+        batchQueue = [effectFn];
+        batchSet = new Set([effectFn]);
+        queueMicrotask(function() {
+            batchScheduled = false;
+            var queue = batchQueue;
+            var set = batchSet;
+            batchQueue = [];
+            batchSet = new Set();
+            // Flush all queued effects, including any added during flush
+            while (queue.length > 0) {
+                for (var i = 0; i < queue.length; i++) {
+                    try {
+                        queue[i]();
+                    } catch (e) {
+                        devWarn('Error in async effect: ' + e.message);
+                    }
+                }
+                // Check if new effects were queued during flush
+                if (batchQueue.length === 0) break;
+                queue = batchQueue;
+                set = batchSet;
+                batchQueue = [];
+                batchSet = new Set();
+            }
+        });
+    } else {
+        // Already scheduled, just add to queue with dedup
+        if (!batchSet.has(effectFn)) {
+            batchSet.add(effectFn);
+            batchQueue.push(effectFn);
+        }
+    }
+}
+
 export function onMount(fn) {
     if (currentComponent) {
         currentComponent.onMountCallbacks.push(fn);
@@ -56,11 +137,16 @@ export function signal(initialValue) {
             return value;
         },
         set(newValue) {
-            if (value !== newValue) {
+            // Use Object.is for proper NaN and -0/+0 handling
+            // NaN !== NaN is true, but Object.is(NaN, NaN) is true
+            // Object.is(0, -0) is false
+            if (!Object.is(value, newValue)) {
                 value = newValue;
                 // Snapshot subscribers to avoid infinite loop when re-subscribing during notification
                 var subs = Array.from(subscribers);
-                for (var i = 0; i < subs.length; i++) subs[i]();
+                for (var i = 0; i < subs.length; i++) {
+                    scheduleEffect(subs[i]);
+                }
             }
         }
     };
@@ -70,11 +156,22 @@ export function signal(initialValue) {
 // --- 2. Computed (readonly, with value-change detection) ---
 export function computed(getter) {
     const result = signal();
+    let isComputing = false;
+    
     effect(() => {
-        const newValue = getter();
-        if (result._last !== newValue) {
-            result._last = newValue;
-            result.set(newValue);
+        if (isComputing) {
+            devWarn('Circular dependency detected in computed — this may cause infinite recursion');
+            return;
+        }
+        isComputing = true;
+        try {
+            const newValue = getter();
+            if (!Object.is(result._last, newValue)) {
+                result._last = newValue;
+                result.set(newValue);
+            }
+        } finally {
+            isComputing = false;
         }
     });
     const computedSig = {
@@ -125,15 +222,18 @@ export function effect(fn) {
                     effectContext.subscribers.add(sig);
                 });
             }
+            
+            // Check for no dependencies warning BEFORE popping
+            if (firstRun && DEV_MODE) {
+                firstRun = false;
+                const currentCtx = trackingStack[trackingStack.length - 1];
+                if (currentCtx && currentCtx.dependencies.size === 0) {
+                    devWarn('Effect has no dependencies — it will only run once. Use signal.get() inside the effect to create reactive dependencies.');
+                }
+            }
+            
             trackingStack.pop();
             currentEffect = savedEffect;
-        }
-        if (firstRun && DEV_MODE) {
-            firstRun = false;
-            const deps = trackingStack.length > 0 ? trackingStack[trackingStack.length - 1].dependencies : new Set();
-            if (deps.size === 0) {
-                devWarn('Effect has no dependencies — it will only run once. Use signal.get() inside the effect to create reactive dependencies.');
-            }
         }
     };
     run();
@@ -151,6 +251,90 @@ export function effect(fn) {
             }
             effectContext.cleanup = null;
         }
+    };
+}
+
+// --- Watch (like Vue's watch) ---
+export function watch(source, callback, options) {
+    options = options || {};
+    const immediate = options.immediate || false;
+    let oldValue;
+    let getter;
+    
+    if (Array.isArray(source)) {
+        getter = function() {
+            return source.map(function(s) {
+                return typeof s.get === 'function' ? s.get() : s;
+            });
+        };
+    } else if (typeof source.get === 'function') {
+        getter = function() { return source.get(); };
+    } else if (typeof source === 'function') {
+        getter = source;
+    } else {
+        devWarn('Invalid watch source');
+        return function() {};
+    }
+    
+    if (immediate) {
+        oldValue = getter();
+        if (callback) callback(oldValue, undefined);
+    }
+    
+    return effect(function() {
+        var newValue = getter();
+        if (callback) {
+            callback(newValue, oldValue);
+        }
+        oldValue = newValue;
+    });
+}
+
+// --- WatchEffect (like Vue's watchEffect) ---
+export function watchEffect(fn, options) {
+    return effect(fn);
+}
+
+// --- Ref (wrapper for signal compatibility) ---
+export function ref(value) {
+    var sig = signal(value);
+    return {
+        get value() { return sig.get(); },
+        set value(v) { sig.set(v); },
+        _isRef: true
+    };
+}
+
+export function unref(ref) {
+    return ref && ref._isRef ? ref.value : ref;
+}
+
+export function toRef(obj, key) {
+    return {
+        get value() { return obj[key]; },
+        set value(v) { obj[key] = v; },
+        _isRef: true
+    };
+}
+
+export function toRefs(obj) {
+    var result = {};
+    Object.keys(obj).forEach(function(key) {
+        result[key] = toRef(obj, key);
+    });
+    return result;
+}
+
+// --- Memo (cached computed) ---
+export function memo(fn) {
+    var cache = null;
+    var hasCache = false;
+    return function() {
+        if (!hasCache) {
+            cache = fn();
+            hasCache = true;
+        }
+        return cache;
     };
 }
 
@@ -380,38 +564,43 @@ function keyedDiff(parent, oldChildren, newChildren) {
 }
 
 function computeLIS(arr) {
+    // LIS (Longest Increasing Subsequence) - optimized O(n log n)
+    // Returns indices of newChildren that are in correct relative order (don't need to move)
     const positiveIndices = [];
     for (let i = 0; i < arr.length; i++) {
         if (arr[i] >= 0) positiveIndices.push(i);
     }
 
+    // tails stores {oldIdx, newIdx} of the smallest tail for each length
     const tails = [];
     for (let i = 0; i < positiveIndices.length; i++) {
-        const idx = positiveIndices[i];
-        const val = arr[idx];
+        const newIdx = positiveIndices[i];
+        const oldIdx = arr[newIdx];
 
         let lo = 0, hi = tails.length;
         while (lo < hi) {
             const mid = Math.floor((lo + hi) / 2);
-            if (arr[tails[mid]] < val) {
+            if (arr[tails[mid].oldIdx] < oldIdx) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
 
+        const entry = { oldIdx: oldIdx, newIdx: newIdx };
         if (lo < tails.length) {
-            tails[lo] = idx;
+            tails[lo] = entry;
         } else {
-            tails.push(idx);
+            tails.push(entry);
         }
     }
 
     if (tails.length === 0) return [];
 
+    // Extract newIdx directly - no O(n) indexOf needed
     const result = [];
-    for (const t of tails) {
-        result.push(positiveIndices.indexOf(t));
+    for (let i = 0; i < tails.length; i++) {
+        result.push(tails[i].newIdx);
     }
     return result;
 }
@@ -550,3 +739,672 @@ export function errorBoundary(fn) {
         }
     };
 }
+
+// --- 10. Router ---
+const routerState = {
+    routes: [],
+    currentPath: '',
+    listeners: new Set(),
+    basePath: '',
+};
+
+function normalizePath(path) {
+    return path.replace(/\/+$/, '').replace(/^([^/])/, '/$1') || '/';
+}
+
+function matchRoute(routePath, currentPath) {
+    const routeParts = routePath.split('/').filter(Boolean);
+    const pathParts = currentPath.split('/').filter(Boolean);
+    
+    // Handle wildcard routes
+    if (routePath === '*' || routePath === '**') {
+        return {}; // Match everything with empty params
+    }
+    
+    if (routeParts.length !== pathParts.length) {
+        // Check for catch-all wildcard (e.g., '/users/*')
+        if (routeParts.length > 0 && routeParts[routeParts.length - 1] === '*') {
+            const routePrefix = routeParts.slice(0, -1);
+            if (routePrefix.length <= pathParts.length) {
+                const params = {};
+                for (let i = 0; i < routePrefix.length; i++) {
+                    if (routePrefix[i].startsWith(':')) {
+                        params[routePrefix[i].slice(1)] = pathParts[i];
+                    } else if (routePrefix[i] !== pathParts[i]) {
+                        return null;
+                    }
+                }
+                // Capture the rest of the path
+                params['*'] = pathParts.slice(routePrefix.length).join('/');
+                return params;
+            }
+        }
+        return null;
+    }
+    
+    const params = {};
+    for (let i = 0; i < routeParts.length; i++) {
+        if (routeParts[i].startsWith(':')) {
+            params[routeParts[i].slice(1)] = pathParts[i];
+        } else if (routeParts[i] !== pathParts[i]) {
+            return null;
+        }
+    }
+    return params;
+}
+
+export function createRouter(options) {
+    options = options || {};
+    routerState.basePath = options.basePath || '';
+    routerState.routes = [];
+    
+    return {
+        addRoute(path, component) {
+            routerState.routes.push({ path: normalizePath(path), component });
+            return this;
+        },
+        navigate(path) {
+            const fullPath = routerState.basePath + normalizePath(path);
+            window.history.pushState({}, '', fullPath);
+            routerState.currentPath = normalizePath(path);
+            routerState.listeners.forEach(fn => fn(routerState.currentPath));
+        },
+        mount(container) {
+            routerState.currentPath = normalizePath(window.location.pathname.replace(routerState.basePath, ''));
+            
+            const render = () => {
+                let matched = null;
+                let params = null;
+                
+                for (const route of routerState.routes) {
+                    params = matchRoute(route.path, routerState.currentPath);
+                    if (params !== null) {
+                        matched = route.component;
+                        break;
+                    }
+                }
+                
+                if (matched) {
+                    const el = matched(params);
+                    container.innerHTML = '';
+                    container.appendChild(el);
+                } else {
+                    // Use createElement instead of innerHTML to prevent XSS
+                    container.innerHTML = '';
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.padding = '40px';
+                    errorDiv.style.textAlign = 'center';
+                    const h1 = document.createElement('h1');
+                    h1.textContent = '404';
+                    const p = document.createElement('p');
+                    p.textContent = 'Page not found';
+                    errorDiv.appendChild(h1);
+                    errorDiv.appendChild(p);
+                    container.appendChild(errorDiv);
+                }
+            };
+            
+            window.addEventListener('popstate', () => {
+                routerState.currentPath = normalizePath(window.location.pathname.replace(routerState.basePath, ''));
+                render();
+            });
+            
+            routerState.listeners.add(render);
+            render();
+            
+            return () => {
+                routerState.listeners.delete(render);
+            };
+        }
+    };
+}
+
+export function useParams() {
+    return routerState.currentPath;
+}
+
+export function useQuery() {
+    const search = window.location.search;
+    const params = new URLSearchParams(search);
+    const result = {};
+    for (const [key, value] of params) {
+        result[key] = value;
+    }
+    return result;
+}
+
+export function Link(props, ...children) {
+    const p = props || {};
+    return h('a', {
+        href: routerState.basePath + normalizePath(p.to),
+        onClick: function(e) {
+            e.preventDefault();
+            if (p.onClick) p.onClick();
+            const fullPath = routerState.basePath + normalizePath(p.to);
+            window.history.pushState({}, '', fullPath);
+            routerState.currentPath = normalizePath(p.to);
+            routerState.listeners.forEach(fn => fn(routerState.currentPath));
+        },
+        style: p.style || '',
+        className: p.className || '',
+    }, ...children);
+}
+
+export function Navigate(props) {
+    const p = props || {};
+    const to = p.to || '/';
+    const replace = p.replace !== false;
+    
+    if (replace) {
+        window.history.replaceState({}, '', routerState.basePath + normalizePath(to));
+    } else {
+        window.history.pushState({}, '', routerState.basePath + normalizePath(to));
+    }
+    
+    routerState.currentPath = normalizePath(to);
+    routerState.listeners.forEach(fn => fn(routerState.currentPath));
+    
+    return null;
+}
+
+// --- 11. Internationalization (i18n) ---
+const i18nState = {
+    locale: 'en',
+    fallbackLocale: 'en',
+    messages: {},
+    listeners: new Set(),
+};
+
+function deepMerge(target, source) {
+    const result = Object.assign({}, target);
+    for (const key of Object.keys(source)) {
+        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+            result[key] = deepMerge(target[key] || {}, source[key]);
+        } else {
+            result[key] = source[key];
+        }
+    }
+    return result;
+}
+
+function getNestedValue(obj, path) {
+    return path.split('.').reduce((current, key) => current && current[key], obj);
+}
+
+export function createI18n(options) {
+    options = options || {};
+    i18nState.locale = options.locale || 'en';
+    i18nState.fallbackLocale = options.fallbackLocale || 'en';
+    i18nState.messages = options.messages || {};
+    
+    return {
+        setLocale(locale) {
+            i18nState.locale = locale;
+            i18nState.listeners.forEach(fn => fn(locale));
+        },
+        getLocale() {
+            return i18nState.locale;
+        },
+        addMessages(locale, messages) {
+            if (!i18nState.messages[locale]) {
+                i18nState.messages[locale] = {};
+            }
+            i18nState.messages[locale] = deepMerge(i18nState.messages[locale], messages);
+        },
+        t(key, params) {
+            let message = getNestedValue(i18nState.messages[i18nState.locale], key);
+            
+            // Fallback to fallback locale
+            if (!message && i18nState.locale !== i18nState.fallbackLocale) {
+                message = getNestedValue(i18nState.messages[i18nState.fallbackLocale], key);
+            }
+            
+            // If still not found, return the key
+            if (!message) {
+                return key;
+            }
+            
+            // Interpolate parameters
+            if (params) {
+                Object.keys(params).forEach(paramKey => {
+                    message = message.replace(new RegExp('\\{' + paramKey + '\\}', 'g'), params[paramKey]);
+                });
+            }
+            
+            return message;
+        },
+        subscribe(fn) {
+            i18nState.listeners.add(fn);
+            return () => i18nState.listeners.delete(fn);
+        }
+    };
+}
+
+export function useTranslation() {
+    return {
+        t: i18nState.t || function(key) { return key; },
+        locale: i18nState.locale,
+        setLocale: function(locale) {
+            i18nState.locale = locale;
+            i18nState.listeners.forEach(fn => fn(locale));
+        }
+    };
+}
+
+export function Translate(props) {
+    const p = props || {};
+    const i18n = useTranslation();
+    const text = i18n.t(p.i18nKey || p.id, p.params);
+    return h('span', { style: p.style || '' }, text);
+}
+
+// --- 12. CSS-in-JS / Scoped Styles ---
+const styleRegistry = new Map();
+let styleCounter = 0;
+
+function generateScopeId() {
+    styleCounter++;
+    return 'sigil-' + styleCounter.toString(36);
+}
+
+export function createStyleSheet(styles) {
+    const scopeId = generateScopeId();
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-sigil-scope', scopeId);
+    
+    // Process styles to add scope
+    const processedStyles = Object.keys(styles).map(selector => {
+        const scopedSelector = selector.replace(/(^|\s)([a-zA-Z])/g, `$1[${scopeId}] $2`)
+            .replace(/^([^{]+)/, `[${scopeId}] $1`);
+        const rules = styles[selector];
+        const cssText = Object.keys(rules).map(prop => {
+            const cssProp = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+            return cssProp + ': ' + rules[prop];
+        }).join('; ');
+        return scopedSelector + ' { ' + cssText + ' }';
+    }).join('\n');
+    
+    styleEl.textContent = processedStyles;
+    document.head.appendChild(styleEl);
+    
+    styleRegistry.set(scopeId, styleEl);
+    
+    return {
+        scopeId,
+        dispose() {
+            if (styleEl.parentNode) {
+                styleEl.parentNode.removeChild(styleEl);
+            }
+            styleRegistry.delete(scopeId);
+        }
+    };
+}
+
+export function withScope(scopeId, element) {
+    if (element && element.setAttribute) {
+        element.setAttribute(scopeId, '');
+    }
+    return element;
+}
+
+// Helper to create scoped styles inline
+export function cssScoped(styles) {
+    const scopeId = generateScopeId();
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-sigil-scope', scopeId);
+    
+    const cssText = Object.keys(styles).map(prop => {
+        const cssProp = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+        return cssProp + ': ' + styles[prop];
+    }).join('; ');
+    
+    styleEl.textContent = '[data-' + scopeId + '] { ' + cssText + ' }';
+    document.head.appendChild(styleEl);
+    
+    var attrs = {};
+    attrs['data-' + scopeId] = '';
+    return attrs;
+}
+
+// Keyframes helper
+export function keyframes(frames) {
+    const name = 'kf-' + generateScopeId();
+    const styleEl = document.createElement('style');
+    
+    let cssText = '@keyframes ' + name + ' {\n';
+    Object.keys(frames).forEach(percent => {
+        cssText += '  ' + percent + ' {\n';
+        Object.keys(frames[percent]).forEach(prop => {
+            const cssProp = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+            cssText += '    ' + cssProp + ': ' + frames[percent][prop] + ';\n';
+        });
+        cssText += '  }\n';
+    });
+    cssText += '}';
+    
+    styleEl.textContent = cssText;
+    document.head.appendChild(styleEl);
+    
+    return name;
+}
+
+// --- 13. Utility Functions ---
+
+// Debounce
+export function debounce(fn, delay, immediate) {
+    delay = delay || 300;
+    var timer = null;
+    var result;
+    
+    return function() {
+        var args = arguments;
+        var context = this;
+        
+        if (timer) clearTimeout(timer);
+        
+        if (immediate && !timer) {
+            result = fn.apply(context, args);
+        }
+        
+        timer = setTimeout(function() {
+            timer = null;
+            if (!immediate) {
+                result = fn.apply(context, args);
+            }
+        }, delay);
+        
+        return result;
+    };
+}
+
+// Throttle
+export function throttle(fn, delay) {
+    delay = delay || 300;
+    var lastTime = 0;
+    var timer = null;
+    
+    return function() {
+        var args = arguments;
+        var context = this;
+        var now = Date.now();
+        
+        if (now - lastTime >= delay) {
+            lastTime = now;
+            return fn.apply(context, args);
+        }
+        
+        if (!timer) {
+            timer = setTimeout(function() {
+                timer = null;
+                lastTime = Date.now();
+                fn.apply(context, args);
+            }, delay - (now - lastTime));
+        }
+    };
+}
+
+// Deep clone
+export function deepClone(obj, seen) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj instanceof Date) return new Date(obj.getTime());
+    if (obj instanceof RegExp) return new RegExp(obj.source, obj.flags);
+    
+    seen = seen || new WeakMap();
+    if (seen.has(obj)) return seen.get(obj); // Return cloned reference for circular refs
+    
+    if (obj instanceof Map) {
+        var clone = new Map();
+        seen.set(obj, clone);
+        obj.forEach(function(value, key) {
+            clone.set(deepClone(key, seen), deepClone(value, seen));
+        });
+        return clone;
+    }
+    
+    if (obj instanceof Set) {
+        var clone2 = new Set();
+        seen.set(obj, clone2);
+        obj.forEach(function(value) {
+            clone2.add(deepClone(value, seen));
+        });
+        return clone2;
+    }
+    
+    var clone3 = Array.isArray(obj) ? [] : {};
+    seen.set(obj, clone3);
+    Object.keys(obj).forEach(function(key) {
+        clone3[key] = deepClone(obj[key], seen);
+    });
+    return clone3;
+}
+
+// Deep equal
+export function deepEqual(a, b, seen) {
+    if (a === b) return true;
+    if (a === null || b === null) return false;
+    if (typeof a !== typeof b) return false;
+    
+    // Handle Map
+    if (a instanceof Map) {
+        if (!(b instanceof Map) || a.size !== b.size) return false;
+        seen = seen || new WeakSet();
+        if (seen.has(a)) return false;
+        seen.add(a);
+        for (var _iterator = a.entries(), _step; !(_step = _iterator()).done; ) {
+            var _step$value = _step.value,
+                key = _step$value[0],
+                valA = _step$value[1];
+            if (!b.has(key) || !deepEqual(valA, b.get(key), seen)) return false;
+        }
+        return true;
+    }
+    
+    // Handle Set
+    if (a instanceof Set) {
+        if (!(b instanceof Set) || a.size !== b.size) return false;
+        seen = seen || new WeakSet();
+        if (seen.has(a)) return false;
+        seen.add(a);
+        for (var _iterator2 = a.values(), _step2; !(_step2 = _iterator2()).done; ) {
+            var val = _step2.value;
+            var found = false;
+            for (var _iterator3 = b.values(), _step3; !(_step3 = _iterator3()).done; ) {
+                if (deepEqual(val, _step3.value, seen)) { found = true; break; }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+    
+    if (Array.isArray(a)) {
+        if (!Array.isArray(b) || a.length !== b.length) return false;
+        seen = seen || new WeakSet();
+        if (seen.has(a)) return false;
+        seen.add(a);
+        for (var i = 0; i < a.length; i++) {
+            if (!deepEqual(a[i], b[i], seen)) return false;
+        }
+        return true;
+    }
+    
+    if (typeof a === 'object') {
+        seen = seen || new WeakSet();
+        if (seen.has(a)) return false;
+        seen.add(a);
+        
+        var keysA = Object.keys(a);
+        var keysB = Object.keys(b);
+        if (keysA.length !== keysB.length) return false;
+        
+        for (var j = 0; j < keysA.length; j++) {
+            var key = keysA[j];
+            if (!(key in b) || !deepEqual(a[key], b[key], seen)) return false;
+        }
+        return true;
+    }
+    
+    return false;
+}
+
+// Next tick
+export function nextTick(fn) {
+    return new Promise(function(resolve) {
+        queueMicrotask(function() {
+            if (fn) fn();
+            resolve();
+        });
+    });
+}
+
+// Clamp
+export function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+// Range
+export function range(start, end, step) {
+    if (end === undefined) {
+        end = start;
+        start = 0;
+    }
+    step = step || 1;
+    
+    var result = [];
+    for (var i = start; i < end; i += step) {
+        result.push(i);
+    }
+    return result;
+}
+
+// Unique ID generator
+var idCounter = 0;
+export function uniqueId(prefix) {
+    idCounter++;
+    return (prefix || 'id') + '-' + idCounter;
+}
+
+// Event emitter
+export function createEventEmitter() {
+    var listeners = {};
+    
+    return {
+        on(event, fn) {
+            if (!listeners[event]) listeners[event] = [];
+            listeners[event].push(fn);
+            return this;
+        },
+        off(event, fn) {
+            if (!listeners[event]) return this;
+            if (fn) {
+                listeners[event] = listeners[event].filter(function(f) { return f !== fn; });
+            } else {
+                delete listeners[event];
+            }
+            return this;
+        },
+        emit(event) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            if (!listeners[event]) return this;
+            listeners[event].forEach(function(fn) {
+                try { fn.apply(null, args); } catch(e) { devWarn('Error in event listener: ' + e.message); }
+            });
+            return this;
+        },
+        once(event, fn) {
+            var self = this;
+            function wrapper() {
+                fn.apply(null, arguments);
+                self.off(event, wrapper);
+            }
+            return this.on(event, wrapper);
+        }
+    };
+}
+
+// Form validation helper
+export function createValidator(rules) {
+    rules = rules || {};
+    
+    return {
+        validate(data) {
+            var errors = {};
+            var isValid = true;
+            
+            Object.keys(rules).forEach(function(field) {
+                var fieldRules = rules[field];
+                var value = data[field];
+                
+                for (var i = 0; i < fieldRules.length; i++) {
+                    var rule = fieldRules[i];
+                    var error = rule.validate(value, data);
+                    if (error) {
+                        errors[field] = error;
+                        isValid = false;
+                        break;
+                    }
+                }
+            });
+            
+            return { isValid: isValid, errors: errors };
+        },
+        addRule(field, rule) {
+            if (!rules[field]) rules[field] = [];
+            rules[field].push(rule);
+            return this;
+        }
+    };
+}
+
+// Common validation rules
+export var validators = {
+    required: function(message) {
+        return {
+            validate: function(value) {
+                if (value === undefined || value === null || value === '') {
+                    return message || 'This field is required';
+                }
+                return null;
+            }
+        };
+    },
+    minLength: function(min, message) {
+        return {
+            validate: function(value) {
+                if (value && value.length < min) {
+                    return message || 'Minimum length is ' + min;
+                }
+                return null;
+            }
+        };
+    },
+    maxLength: function(max, message) {
+        return {
+            validate: function(value) {
+                if (value && value.length > max) {
+                    return message || 'Maximum length is ' + max;
+                }
+                return null;
+            }
+        };
+    },
+    pattern: function(regex, message) {
+        return {
+            validate: function(value) {
+                if (value && !regex.test(value)) {
+                    return message || 'Invalid format';
+                }
+                return null;
+            }
+        };
+    },
+    email: function(message) {
+        return {
+            validate: function(value) {
+                if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+                    return message || 'Invalid email address';
+                }
+                return null;
+            }
+        };
+    }
+};

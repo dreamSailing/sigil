@@ -135,8 +135,38 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
         let c = cache_clone2.clone();
         async move {
             let full_path = src.join(&file);
+            
+            // Security: Prevent path traversal attacks
+            // Canonicalize both paths and verify the result is within src_dir
+            let canonical_path = match full_path.canonicalize() {
+                Ok(p) => p,
+                Err(_) => {
+                    return Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .header(header::CONTENT_TYPE, "text/plain")
+                        .body(Body::from("File not found"))
+                        .expect("response build failed");
+                }
+            };
+            let canonical_src = match src.canonicalize() {
+                Ok(p) => p,
+                Err(_) => {
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header(header::CONTENT_TYPE, "text/plain")
+                        .body(Body::from("Server configuration error"))
+                        .expect("response build failed");
+                }
+            };
+            if !canonical_path.starts_with(&canonical_src) {
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .body(Body::from("Access denied"))
+                    .expect("response build failed");
+            }
 
-            if !full_path.exists() {
+            if !canonical_path.exists() {
                 return Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .header(header::CONTENT_TYPE, "text/plain")
@@ -144,7 +174,7 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                     .expect("response build failed");
             }
 
-            let source = match std::fs::read_to_string(&full_path) {
+            let source = match std::fs::read_to_string(&canonical_path) {
                 Ok(s) => s,
                 Err(e) => {
                     return Response::builder()

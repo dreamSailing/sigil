@@ -121,22 +121,26 @@ sig build --output dist
 | `onMount(fn)` | Register mount callback inside component |
 | `onUnmount(fn)` | Register unmount callback inside component |
 | `h(tag, props?, ...children)` | Create DOM element or call component |
+| `createRouter(opts)` | Client-side router with route definitions |
+| `Link(props)` | Navigation link that prevents full page reload |
+| `Navigate(props)` | Programmatically navigate to a route |
 
 Full API reference: [Documentation Site](http://localhost:3000/#api)
 
 ## SigUI
 
-28 built-in components, zero external CSS files:
+36 built-in components, zero external CSS files:
 
 | Category | Components |
 |----------|-----------|
-| Layout | Container, Flex, Grid, Stack, Divider |
+| Layout | Container, Flex, Grid, Stack |
 | Typography | Heading, Text |
-| Data | Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, EmptyState |
+| Data | Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, EmptyState, Timeline |
 | Form | Button, Input, Textarea, SearchInput, Checkbox, Select |
-| Feedback | Modal, showToast, Tooltip |
-| Navigation | Tabs, Pagination |
-| Other | Separator |
+| Feedback | Modal, showToast, Tooltip, Alert, Progress, Skeleton |
+| Navigation | Tabs, Pagination, Breadcrumbs, Steps, Link |
+| Overlay | Dropdown, Accordion |
+| Other | Separator, Divider |
 
 ## Architecture
 
@@ -226,10 +230,12 @@ sig serve --port 3000
 | **onMount** | 组件挂载回调 |
 | **onUnmount** | 组件卸载回调 |
 | **h()** | 创建 DOM 元素 |
+| **createRouter** | 客户端路由系统 |
+| **Link** | 导航链接组件 |
 
 ## SigUI 组件库
 
-28 个组件，零外部 CSS 文件：Container, Flex, Grid, Stack, Heading, Text, Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, Checkbox, Divider, EmptyState, SearchInput, Modal, showToast, Tooltip, Tabs, Select, Pagination, Separator
+36 个组件，零外部 CSS 文件：Container, Flex, Grid, Stack, Heading, Text, Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, Checkbox, Divider, EmptyState, SearchInput, Modal, showToast, Tooltip, Tabs, Select, Pagination, Separator, Alert, Progress, Skeleton, Dropdown, Accordion, Breadcrumbs, Steps, Timeline
 
 ## 贡献
 

@@ -18,7 +18,9 @@ const ALL_UI_COMPONENTS: &[&str] = &[
     "Container", "Stack", "Heading", "Text", "Checkbox", "Divider",
     "EmptyState", "SearchInput", "Table", "TableHeader", "TableBody",
     "TableRow", "Separator", "Tabs", "Tooltip", "Modal", "Select", "Pagination",
-    "showToast",
+    "showToast", "Alert", "Progress", "Skeleton", "Dropdown", "Accordion",
+    "Breadcrumbs", "Steps", "Timeline", "VirtualList", "AutoComplete",
+    "ColorPicker", "Rating", "Tree",
 ];
 
 struct ErrorCapturer {
@@ -146,7 +148,7 @@ fn do_transform(cm: &Lrc<SourceMap>, source: &str, minify: bool) -> Result<Compi
     };
 
     let mut final_code = format!(
-        "import {{ signal, computed, effect, h, defineComponent, reactiveTemplate, Fragment, errorBoundary }} from '/@runtime';\n{}{}",
+        "import {{ signal, computed, effect, h, defineComponent, reactiveTemplate, Fragment, errorBoundary, createRouter, Link, Navigate, useParams, useQuery, createI18n, useTranslation, Translate, createStyleSheet, withScope, cssScoped, keyframes, batch, watch, watchEffect, ref, unref, toRef, toRefs, memo, debounce, throttle, deepClone, deepEqual, nextTick, clamp, range, uniqueId, createEventEmitter, createValidator, validators }} from '/@runtime';\n{}{}",
         ui_import,
         rewritten
     );
@@ -241,42 +243,66 @@ pub fn rewrite_local_imports(code: &str) -> String {
 /// Build an inline source map with original source content embedded and real mappings from SWC.
 /// Returns the full `//# sourceMappingURL=...` comment string.
 fn build_source_map_with_mappings(original_source: &str, swc_mappings: Vec<(swc_core::common::BytePos, swc_core::common::LineCol)>) -> String {
-    // Convert SWC's BytePos/LineCol mappings to VLQ format
-    // For simplicity, we'll generate a basic VLQ mapping string
-    // A full implementation would need proper VLQ encoding
+    // Convert SWC's BytePos/LineCol mappings to proper VLQ format
+    // SWC mappings are (generated_position, original_line_col)
     
-    // For now, generate a placeholder that at least allows source map to work
-    // A real implementation would encode the actual position mappings
-    let mut last_line = 0;
-    let mut last_col = 0;
-    let mut segments = Vec::new();
+    // Group mappings by generated line
+    let mut line_mappings: Vec<Vec<(u32, u32, u32)>> = Vec::new(); // (gen_col, orig_line, orig_col)
     
-    for (i, (_, linecol)) in swc_mappings.iter().enumerate() {
-        // Add empty lines for gaps
-        while last_line < linecol.line as usize {
-            segments.push(";".to_string());
-            last_line += 1;
-            last_col = 0;
+    for (_, linecol) in &swc_mappings {
+        let gen_col = linecol.col as u32;
+        // Approximate original line/col from SWC's output
+        let orig_line = linecol.line as u32;
+        let orig_col = linecol.col as u32;
+        
+        let gen_line = linecol.line as usize;
+        while line_mappings.len() <= gen_line {
+            line_mappings.push(Vec::new());
         }
-        // Add column separator if not first on line
-        if i > 0 && last_line == linecol.line as usize {
-            segments.push(",".to_string());
-        }
-        // VLQ encode: generated column, source index, original line, original column
-        // This is simplified - real VLQ needs proper encoding
-        let gen_col = linecol.col;
-        segments.push(vlq_encode(gen_col as i32 - last_col as i32, 0, 0, 0));
-        last_col = gen_col;
+        line_mappings[gen_line].push((gen_col, orig_line, orig_col));
     }
     
-    let mappings_str = segments.join("");
+    // Build VLQ mappings string
+    let mut mappings = String::new();
+    let mut last_gen_col = 0i32;
+    let mut last_source = 0i32;
+    let mut last_orig_line = 0i32;
+    let mut last_orig_col = 0i32;
+    
+    for (i, line) in line_mappings.iter().enumerate() {
+        if i > 0 {
+            mappings.push(';'); // End of line
+            last_gen_col = 0;
+        }
+        
+        for (j, (gen_col, orig_line, orig_col)) in line.iter().enumerate() {
+            if j > 0 {
+                mappings.push(','); // Separator within line
+            }
+            
+            let gen_col_i32 = *gen_col as i32;
+            let orig_line_i32 = *orig_line as i32;
+            let orig_col_i32 = *orig_col as i32;
+            
+            // VLQ encode: gen_col, source_idx, orig_line, orig_col
+            mappings.push_str(&vlq_encode_segment(gen_col_i32 - last_gen_col));
+            mappings.push_str(&vlq_encode_segment(0 - last_source)); // source index 0
+            mappings.push_str(&vlq_encode_segment(orig_line_i32 - last_orig_line));
+            mappings.push_str(&vlq_encode_segment(orig_col_i32 - last_orig_col));
+            
+            last_gen_col = gen_col_i32;
+            last_source = 0;
+            last_orig_line = orig_line_i32;
+            last_orig_col = orig_col_i32;
+        }
+    }
 
     // Build source map JSON with real mappings
     let source_map = serde_json::json!({
         "version": 3,
         "sources": ["input.tsx"],
         "sourcesContent": [original_source],
-        "mappings": mappings_str,
+        "mappings": mappings,
         "names": []
     });
 
@@ -288,31 +314,38 @@ fn build_source_map_with_mappings(original_source: &str, swc_mappings: Vec<(swc_
     format!("//# sourceMappingURL=data:application/json;base64,{}\n", encoded)
 }
 
-/// Simple VLQ encoding helper (simplified version)
-fn vlq_encode(value: i32, source_idx: i32, orig_line: i32, orig_col: i32) -> String {
-    // Simplified: just encode as base64 segments
-    // Real VLQ is more complex
-    let mut result = String::new();
+/// VLQ encode a single integer value
+fn vlq_encode_segment(value: i32) -> String {
+    // VLQ encoding: 
+    // 1. Convert signed to unsigned (zigzag encoding)
+    // 2. Split into 5-bit chunks
+    // 3. Set continuation bit for all but last chunk
+    // 4. Map to base64 characters
     
-    // Encode generated column offset
-    result.push(vlq_single(value));
-    // Encode source index
-    result.push(vlq_single(source_idx));
-    // Encode original line offset  
-    result.push(vlq_single(orig_line));
-    // Encode original column offset
-    result.push(vlq_single(orig_col));
+    // Use safe zigzag encoding to avoid overflow for i32::MIN
+    // zigzag: (value << 1) ^ (value >> 31)
+    let vlq = ((value << 1) ^ (value >> 31)) as u32;
+    
+    let base64_chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    let mut remaining = vlq;
+    
+    loop {
+        let mut digit = remaining & 0x1F; // 5 bits
+        remaining >>= 5;
+        
+        if remaining > 0 {
+            digit |= 0x20; // Set continuation bit
+        }
+        
+        result.push(base64_chars[digit as usize] as char);
+        
+        if remaining == 0 {
+            break;
+        }
+    }
     
     result
-}
-
-fn vlq_single(value: i32) -> char {
-    // Very simplified VLQ encoding to base64 char
-    let abs_val = value.abs() as u32;
-    let base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    // Map to a base64 character (simplified)
-    let idx = (abs_val % 64) as usize;
-    base64_chars.chars().nth(idx).unwrap_or('A')
 }
 
 #[cfg(test)]

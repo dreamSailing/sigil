@@ -72,7 +72,7 @@ function mergeStyle(base, extra) {
 
 export function Grid(props, ...children) {
     const p = props || {};
-    const cols = p.cols || 3;
+    const cols = Math.max(1, p.cols || 3);
     const responsive = p.responsive !== false;
     const templateCols = responsive
         ? 'repeat(auto-fill, minmax(min(' + Math.floor(100 / cols) + '%, 280px), 1fr))'
@@ -214,7 +214,7 @@ export function Badge(props, ...children) {
 // --- Avatar ---
 export function Avatar(props) {
     const p = props || {};
-    const name = p.name || '?';
+    const name = (typeof p.name === 'string' && p.name) || '?';
     const size = p.size || 'md';
     const sizeMap = { sm: '32px', md: '40px', lg: '56px' };
     const fontSizeMap = { sm: theme.fontSizes.sm, md: theme.fontSizes.base, lg: theme.fontSizes.xl };
@@ -510,5 +510,594 @@ export function Pagination(props) {
 
     return h('div', { style: css({ display: 'flex', alignItems: 'center', gap: theme.spacing[2], justifyContent: p.align || 'center' }) },
         navBtns.concat(pageBtns).concat([nextBtn])
+    );
+}
+
+// --- Alert ---
+export function Alert(props, ...children) {
+    var p = props || {};
+    var variant = p.variant || 'info';
+    var colorMap = {
+        success: { bg: '#dcfce7', border: '#22c55e', color: '#166534', icon: '\u2713' },
+        danger: { bg: '#fee2e2', border: '#ef4444', color: '#991b1b', icon: '\u26A0' },
+        warning: { bg: '#fef3c7', border: '#f59e0b', color: '#92400e', icon: '\u26A0' },
+        info: { bg: '#dbeafe', border: '#3b82f6', color: '#1e40af', icon: '\u2139' },
+    };
+    var c = colorMap[variant] || colorMap.info;
+    return h('div', { style: css(mergeStyle({
+        background: c.bg, borderLeft: '4px solid ' + c.border,
+        borderRadius: theme.radii.md, padding: theme.spacing[4],
+        color: c.color, fontSize: theme.fontSizes.sm,
+        display: 'flex', gap: theme.spacing[3], alignItems: 'flex-start',
+    }, p.style)) },
+        h('span', { style: css({ fontSize: theme.fontSizes.lg, lineHeight: '1', flexShrink: '0' }) }, c.icon),
+        h('div', { style: css({ flex: 1 }) }, ...children)
+    );
+}
+
+// --- Progress ---
+export function Progress(props) {
+    var p = props || {};
+    var value = p.value !== undefined ? p.value : 0;
+    var max = p.max || 100;
+    var percent = Math.min(100, Math.max(0, (value / max) * 100));
+    var variant = p.variant || 'primary';
+    var colorMap = {
+        primary: theme.colors.primary,
+        success: theme.colors.success,
+        danger: theme.colors.danger,
+        warning: theme.colors.warning,
+    };
+    var barColor = colorMap[variant] || colorMap.primary;
+    
+    return h('div', { style: css(mergeStyle({
+        width: '100%', height: p.height || '8px',
+        background: theme.colors.gray[200], borderRadius: theme.radii.full,
+        overflow: 'hidden',
+    }, p.style)) },
+        h('div', { style: css({
+            width: percent + '%', height: '100%',
+            background: barColor,
+            transition: 'width 0.3s ease',
+            borderRadius: theme.radii.full,
+        }) })
+    );
+}
+
+// --- Skeleton ---
+export function Skeleton(props) {
+    var p = props || {};
+    var width = p.width || '100%';
+    var height = p.height || '20px';
+    var circle = p.circle === true;
+    return h('div', { style: css(mergeStyle({
+        width: width, height: height,
+        background: 'linear-gradient(90deg, ' + theme.colors.gray[200] + ' 25%, ' + theme.colors.gray[100] + ' 50%, ' + theme.colors.gray[200] + ' 75%)',
+        backgroundSize: '200% 100%',
+        animation: 'skeleton-loading 1.5s ease-in-out infinite',
+        borderRadius: circle ? '50%' : (p.radius || theme.radii.sm),
+    }, p.style)) });
+}
+
+// Add skeleton animation to global styles
+(function() {
+    var style = document.getElementById('sigil-skeleton');
+    if (style) return;
+    style = document.createElement('style');
+    style.id = 'sigil-skeleton';
+    style.textContent = '@keyframes skeleton-loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }';
+    document.head.appendChild(style);
+})();
+
+// --- Dropdown ---
+export function Dropdown(props, ...children) {
+    var p = props || {};
+    var isOpen = p.open || false;
+    if (!isOpen) return h('div', { style: css(p.style || {}) }, ...children);
+    
+    var align = p.align || 'left';
+    var positionStyle = {
+        position: 'absolute', top: 'calc(100% + 4px)',
+        zIndex: '50', background: theme.colors.white,
+        borderRadius: theme.radii.md, boxShadow: theme.shadows.lg,
+        border: '1px solid ' + theme.colors.gray[200],
+        padding: theme.spacing[2],
+        minWidth: p.minWidth || '160px',
+    };
+    if (align === 'right') {
+        positionStyle.right = '0';
+    } else {
+        positionStyle.left = '0';
+    }
+    
+    return h('div', { style: css(mergeStyle({ position: 'relative' }, p.style || {})) },
+        ...children,
+        h('div', { style: css(positionStyle) },
+            p.items ? p.items.map(function(item) {
+                return h('button', {
+                    onClick: item.onClick,
+                    style: css({
+                        display: 'block', width: '100%', padding: theme.spacing[2] + ' ' + theme.spacing[3],
+                        textAlign: 'left', fontSize: theme.fontSizes.sm, color: theme.colors.gray[700],
+                        background: 'transparent', border: 'none', borderRadius: theme.radii.sm,
+                        cursor: 'pointer',
+                    }),
+                    onMouseEnter: function(e) { e.target.style.background = theme.colors.gray[100]; },
+                    onMouseLeave: function(e) { e.target.style.background = 'transparent'; },
+                }, item.label || '');
+            }) : null
+        )
+    );
+}
+
+// --- Accordion ---
+export function Accordion(props) {
+    var p = props || {};
+    var items = p.items || [];
+    var activeIndex = p.active !== undefined ? p.active : -1;
+    var onChange = p.onChange || function() {};
+    
+    return h('div', { style: css(mergeStyle({
+        border: '1px solid ' + theme.colors.gray[200],
+        borderRadius: theme.radii.md,
+        overflow: 'hidden',
+    }, p.style)) },
+        items.map(function(item, i) {
+            var isActive = i === activeIndex;
+            return h('div', {
+                style: css({
+                    borderBottom: i < items.length - 1 ? ('1px solid ' + theme.colors.gray[200]) : 'none',
+                })
+            },
+                h('button', {
+                    onClick: function() { onChange(isActive ? -1 : i); },
+                    style: css({
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        width: '100%', padding: theme.spacing[4],
+                        background: isActive ? theme.colors.gray[50] : theme.colors.white,
+                        border: 'none', cursor: 'pointer',
+                        fontSize: theme.fontSizes.base, fontWeight: theme.fontWeights.medium,
+                        color: theme.colors.gray[900],
+                    }),
+                    onMouseEnter: function(e) { if (!isActive) e.currentTarget.style.background = theme.colors.gray[50]; },
+                    onMouseLeave: function(e) { if (!isActive) e.currentTarget.style.background = theme.colors.white; },
+                },
+                    item.title || '',
+                    h('span', {
+                        style: css({
+                            transform: isActive ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.2s',
+                            fontSize: theme.fontSizes.sm,
+                            color: theme.colors.gray[500],
+                        })
+                    }, '\u25BC')
+                ),
+                isActive && item.content ? h('div', {
+                    style: css({ padding: theme.spacing[4], background: theme.colors.white })
+                }, item.content) : null
+            );
+        })
+    );
+}
+
+// --- Breadcrumbs ---
+export function Breadcrumbs(props) {
+    var p = props || {};
+    var items = p.items || [];
+    var separator = p.separator || '/';
+    
+    return h('nav', { style: css(mergeStyle({ display: 'flex', alignItems: 'center', gap: theme.spacing[2] }, p.style)) },
+        items.map(function(item, i) {
+            var isLast = i === items.length - 1;
+            return h('div', { style: css({ display: 'flex', alignItems: 'center', gap: theme.spacing[2] }) },
+                i > 0 ? h('span', { style: css({ color: theme.colors.gray[400], fontSize: theme.fontSizes.sm }) }, separator) : null,
+                isLast
+                    ? h('span', { style: css({ color: theme.colors.gray[900], fontSize: theme.fontSizes.sm, fontWeight: theme.fontWeights.medium }) }, item.label)
+                    : h('a', {
+                        href: item.href || '#',
+                        onClick: item.onClick,
+                        style: css({ color: theme.colors.primary, fontSize: theme.fontSizes.sm, textDecoration: 'none' }),
+                    }, item.label)
+            );
+        })
+    );
+}
+
+// --- Steps ---
+export function Steps(props) {
+    var p = props || {};
+    var items = p.items || [];
+    var current = p.current || 0;
+    var direction = p.direction || 'horizontal';
+    
+    if (direction === 'horizontal') {
+        return h('div', { style: css(mergeStyle({ display: 'flex', alignItems: 'center', gap: theme.spacing[4] }, p.style)) },
+            items.map(function(item, i) {
+                var isCompleted = i < current;
+                var isCurrent = i === current;
+                var circleStyle = {
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: theme.fontSizes.sm, fontWeight: theme.fontWeights.bold,
+                    background: isCompleted ? theme.colors.primary : (isCurrent ? theme.colors.primary : theme.colors.gray[200]),
+                    color: (isCompleted || isCurrent) ? theme.colors.white : theme.colors.gray[500],
+                    flexShrink: '0',
+                };
+                return h('div', { style: css({ display: 'flex', alignItems: 'center', gap: theme.spacing[2], flex: 1 }) },
+                    h('div', { style: css(circleStyle) }, String(i + 1)),
+                    h('div', { style: css({ flex: 1 }) },
+                        h('div', { style: css({ fontSize: theme.fontSizes.sm, fontWeight: theme.fontWeights.medium, color: theme.colors.gray[900] }) }, item.title || ''),
+                        item.description ? h('div', { style: css({ fontSize: theme.fontSizes.xs, color: theme.colors.gray[500] }) }, item.description) : null
+                    ),
+                    i < items.length - 1 ? h('div', { style: css({ flex: 1, height: '2px', background: isCompleted ? theme.colors.primary : theme.colors.gray[200] }) }) : null
+                );
+            })
+        );
+    }
+    
+    // Vertical direction
+    return h('div', { style: css(mergeStyle({ display: 'flex', flexDirection: 'column', gap: theme.spacing[4] }, p.style)) },
+        items.map(function(item, i) {
+            var isCompleted = i < current;
+            var isCurrent = i === current;
+            var circleStyle = {
+                width: '32px', height: '32px', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: theme.fontSizes.sm, fontWeight: theme.fontWeights.bold,
+                background: isCompleted ? theme.colors.primary : (isCurrent ? theme.colors.primary : theme.colors.gray[200]),
+                color: (isCompleted || isCurrent) ? theme.colors.white : theme.colors.gray[500],
+                flexShrink: '0',
+            };
+            return h('div', { style: css({ display: 'flex', gap: theme.spacing[3] }) },
+                h('div', { style: css({ display: 'flex', flexDirection: 'column', alignItems: 'center' }) },
+                    h('div', { style: css(circleStyle) }, String(i + 1)),
+                    i < items.length - 1 ? h('div', { style: css({ width: '2px', flex: 1, background: isCompleted ? theme.colors.primary : theme.colors.gray[200], marginTop: theme.spacing[2] }) }) : null
+                ),
+                h('div', { style: css({ flex: 1, paddingBottom: theme.spacing[4] }) },
+                    h('div', { style: css({ fontSize: theme.fontSizes.base, fontWeight: theme.fontWeights.medium, color: theme.colors.gray[900] }) }, item.title || ''),
+                    item.description ? h('div', { style: css({ fontSize: theme.fontSizes.sm, color: theme.colors.gray[500], marginTop: theme.spacing[1] }) }, item.description) : null
+                )
+            );
+        })
+    );
+}
+
+// --- Timeline ---
+export function Timeline(props) {
+    var p = props || {};
+    var items = p.items || [];
+    
+    return h('div', { style: css(mergeStyle({ position: 'relative', paddingLeft: '24px' }, p.style)) },
+        h('div', { style: css({ position: 'absolute', left: '8px', top: '8px', bottom: '8px', width: '2px', background: theme.colors.gray[200] }) }),
+        items.map(function(item, i) {
+            return h('div', { style: css({ position: 'relative', paddingBottom: theme.spacing[6] }) },
+                h('div', { style: css({
+                    position: 'absolute', left: '-20px', top: '4px',
+                    width: '12px', height: '12px', borderRadius: '50%',
+                    background: item.color || theme.colors.primary,
+                    border: '2px solid ' + theme.colors.white,
+                }) }),
+                h('div', { style: css({ fontSize: theme.fontSizes.sm, fontWeight: theme.fontWeights.medium, color: theme.colors.gray[900] }) }, item.title || ''),
+                item.description ? h('div', { style: css({ fontSize: theme.fontSizes.sm, color: theme.colors.gray[500], marginTop: theme.spacing[1] }) }, item.description) : null,
+                item.time ? h('div', { style: css({ fontSize: theme.fontSizes.xs, color: theme.colors.gray[400], marginTop: theme.spacing[1] }) }, item.time) : null
+            );
+        })
+    );
+}
+
+// --- VirtualList (Virtual Scrolling) ---
+var virtualListInstances = new WeakMap();
+
+export function VirtualList(props) {
+    var p = props || {};
+    var items = p.items || [];
+    var itemHeight = Math.max(1, p.itemHeight || 50);
+    var containerHeight = p.height || 400;
+    var overscan = p.overscan || 5;
+    var renderItem = p.renderItem || function(item, index) { return String(item); };
+    
+    // Use WeakMap to persist state across re-renders
+    var instance = virtualListInstances.get(props);
+    if (!instance) {
+        instance = {
+            scrollTop: signal(0),
+            containerRef: { current: null },
+            scrollHandler: null
+        };
+        virtualListInstances.set(props, instance);
+    }
+    
+    var scrollTop = instance.scrollTop;
+    var containerRef = instance.containerRef;
+    var scrollHandler = instance.scrollHandler;
+    
+    var visibleStart = computed(function() {
+        return Math.floor(scrollTop.get() / itemHeight);
+    });
+    
+    var visibleEnd = computed(function() {
+        return Math.min(
+            items.length,
+            Math.ceil((scrollTop.get() + containerHeight) / itemHeight) + overscan
+        );
+    });
+    
+    var totalHeight = items.length * itemHeight;
+    var offsetY = visibleStart.get() * itemHeight;
+    
+    onMount(function() {
+        if (containerRef.current && !scrollHandler) {
+            // Read actual scroll position from DOM
+            scrollTop.set(containerRef.current.scrollTop);
+            
+            scrollHandler = function(e) {
+                scrollTop.set(e.target.scrollTop);
+            };
+            containerRef.current.addEventListener('scroll', scrollHandler);
+            instance.scrollHandler = scrollHandler;
+        }
+    });
+    
+    onUnmount(function() {
+        if (containerRef.current && scrollHandler) {
+            containerRef.current.removeEventListener('scroll', scrollHandler);
+            instance.scrollHandler = null;
+        }
+    });
+    
+    var visibleItems = [];
+    for (var i = visibleStart.get(); i < visibleEnd.get(); i++) {
+        if (i < items.length) {
+            visibleItems.push({ item: items[i], index: i });
+        }
+    }
+    
+    return h('div', {
+        style: css(mergeStyle({
+            height: containerHeight + 'px',
+            overflow: 'auto',
+            position: 'relative',
+        }, p.style)),
+        'data-ref': function(el) { containerRef.current = el; }
+    },
+        h('div', { style: css({ height: totalHeight + 'px', position: 'relative' }) },
+            h('div', { style: css({
+                position: 'absolute',
+                top: offsetY + 'px',
+                left: '0',
+                right: '0',
+            }) },
+                visibleItems.map(function(data) {
+                    return h('div', {
+                        key: p.keyField ? data.item[p.keyField] : data.index,
+                        style: css({ height: itemHeight + 'px', overflow: 'hidden' })
+                    },
+                        renderItem(data.item, data.index)
+                    );
+                })
+            )
+        )
+    );
+}
+
+// --- AutoComplete ---
+var autoCompleteInstances = new WeakMap();
+
+export function AutoComplete(props) {
+    var p = props || {};
+    var options = p.options || [];
+    
+    // Persist state across re-renders
+    var instance = autoCompleteInstances.get(props);
+    if (!instance) {
+        instance = {
+            value: signal(p.value || ''),
+            isOpen: signal(false),
+            blurTimer: null
+        };
+        autoCompleteInstances.set(props, instance);
+    }
+    
+    var value = instance.value;
+    var isOpen = instance.isOpen;
+    var blurTimer = instance.blurTimer;
+    
+    var filteredOptions = computed(function() {
+        var query = value.get().toLowerCase();
+        if (!query) return [];
+        return options.filter(function(opt) {
+            var label = typeof opt === 'string' ? opt : opt.label;
+            return label.toLowerCase().includes(query);
+        });
+    });
+    
+    return h('div', { style: css(mergeStyle({ position: 'relative' }, p.style)) },
+        h(Input, {
+            value: value.get(),
+            placeholder: p.placeholder || 'Search...',
+            onInput: function(e) {
+                value.set(e.target.value);
+                isOpen.set(true);
+                if (blurTimer) { clearTimeout(blurTimer); instance.blurTimer = null; }
+            },
+            onFocus: function() { isOpen.set(true); },
+            onBlur: function() {
+                blurTimer = setTimeout(function() { isOpen.set(false); }, 200);
+                instance.blurTimer = blurTimer;
+            }
+        }),
+        isOpen.get() && filteredOptions.get().length > 0 ? h('div', {
+            style: css({
+                position: 'absolute', top: '100%', left: '0', right: '0',
+                zIndex: '50', background: theme.colors.white,
+                border: '1px solid ' + theme.colors.gray[200],
+                borderRadius: theme.radii.md,
+                boxShadow: theme.shadows.lg,
+                maxHeight: '200px', overflow: 'auto',
+                marginTop: theme.spacing[1],
+            })
+        },
+            filteredOptions.get().map(function(opt) {
+                var label = typeof opt === 'string' ? opt : opt.label;
+                var val = typeof opt === 'string' ? opt : opt.value;
+                return h('div', {
+                    onClick: function() {
+                        value.set(label);
+                        isOpen.set(false);
+                        if (blurTimer) { clearTimeout(blurTimer); instance.blurTimer = null; }
+                        if (p.onSelect) p.onSelect(val);
+                    },
+                    style: css({
+                        padding: theme.spacing[2] + ' ' + theme.spacing[3],
+                        cursor: 'pointer',
+                        fontSize: theme.fontSizes.sm,
+                    }),
+                    onMouseEnter: function(e) { e.currentTarget.style.background = theme.colors.gray[100]; },
+                    onMouseLeave: function(e) { e.currentTarget.style.background = 'transparent'; },
+                }, label);
+            })
+        ) : null
+    );
+}
+
+// --- ColorPicker ---
+var colorPickerInstances = new WeakMap();
+
+export function ColorPicker(props) {
+    var p = props || {};
+    
+    var instance = colorPickerInstances.get(props);
+    if (!instance) {
+        instance = { value: signal(p.value || '#3b82f6') };
+        colorPickerInstances.set(props, instance);
+    }
+    
+    var value = instance.value;
+    
+    return h('div', { style: css(mergeStyle({ display: 'flex', alignItems: 'center', gap: theme.spacing[2] }, p.style)) },
+        h('input', {
+            type: 'color',
+            value: value.get(),
+            onInput: function(e) {
+                value.set(e.target.value);
+                if (p.onChange) p.onChange(e.target.value);
+            },
+            style: css({
+                width: '40px', height: '40px',
+                border: 'none', cursor: 'pointer',
+                borderRadius: theme.radii.sm,
+            })
+        }),
+        h('span', { style: css({ fontSize: theme.fontSizes.sm, color: theme.colors.gray[600], fontFamily: 'monospace' }) },
+            value.get()
+        )
+    );
+}
+
+// --- Rating ---
+var ratingInstances = new WeakMap();
+
+export function Rating(props) {
+    var p = props || {};
+    var max = p.max || 5;
+    var size = p.size || '24px';
+    var readOnly = p.readOnly || false;
+    
+    var instance = ratingInstances.get(props);
+    if (!instance) {
+        instance = { value: signal(p.value || 0) };
+        ratingInstances.set(props, instance);
+    }
+    
+    var value = instance.value;
+    
+    return h('div', { style: css(mergeStyle({ display: 'flex', gap: '2px' }, p.style)) },
+        range(1, max + 1).map(function(i) {
+            var filled = i <= value.get();
+            return h('span', {
+                onClick: function() {
+                    if (!readOnly) {
+                        value.set(i);
+                        if (p.onChange) p.onChange(i);
+                    }
+                },
+                style: css({
+                    fontSize: size,
+                    color: filled ? '#fbbf24' : theme.colors.gray[300],
+                    cursor: readOnly ? 'default' : 'pointer',
+                    transition: 'color 0.15s',
+                }),
+                onMouseEnter: function(e) { if (!readOnly) e.currentTarget.style.color = '#fbbf24'; },
+                onMouseLeave: function(e) { if (!readOnly) e.currentTarget.style.color = i <= value.get() ? '#fbbf24' : theme.colors.gray[300]; },
+            }, '\u2605');
+        })
+    );
+}
+
+// --- Tree ---
+var treeInstances = new WeakMap();
+
+export function Tree(props) {
+    var p = props || {};
+    var nodes = p.nodes || [];
+    
+    var instance = treeInstances.get(props);
+    if (!instance) {
+        instance = { expandedKeys: signal(p.defaultExpandedKeys || []) };
+        treeInstances.set(props, instance);
+    }
+    
+    var expandedKeys = instance.expandedKeys;
+    
+    function toggleKey(key) {
+        var keys = expandedKeys.get();
+        var index = keys.indexOf(key);
+        // Create new array to trigger reactive update
+        var newKeys;
+        if (index >= 0) {
+            newKeys = keys.slice(0, index).concat(keys.slice(index + 1));
+        } else {
+            newKeys = keys.concat([key]);
+        }
+        expandedKeys.set(newKeys);
+    }
+    
+    function renderNode(node, depth) {
+        var isExpanded = expandedKeys.get().indexOf(node.key) >= 0;
+        var hasChildren = node.children && node.children.length > 0;
+        var paddingLeft = depth * 20;
+        
+        return h('div', { style: css({ marginLeft: paddingLeft + 'px' }) },
+            h('div', {
+                onClick: function() { if (hasChildren) toggleKey(node.key); },
+                style: css({
+                    padding: theme.spacing[2],
+                    cursor: hasChildren ? 'pointer' : 'default',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: theme.spacing[2],
+                }),
+                onMouseEnter: function(e) { e.target.style.background = theme.colors.gray[100]; },
+                onMouseLeave: function(e) { e.target.style.background = 'transparent'; },
+            },
+                hasChildren ? h('span', {
+                    style: css({
+                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                        fontSize: theme.fontSizes.xs,
+                        color: theme.colors.gray[500],
+                    })
+                }, '\u25B6') : h('span', { style: css({ width: '12px' }) }),
+                node.icon ? h('span', { style: css({ fontSize: theme.fontSizes.base }) }, node.icon) : null,
+                h('span', { style: css({ fontSize: theme.fontSizes.sm, color: theme.colors.gray[700] }) }, node.label)
+            ),
+            isExpanded && hasChildren ? h('div', { style: css({ marginLeft: theme.spacing[4] }) },
+                node.children.map(function(child) { return renderNode(child, depth + 1); })
+            ) : null
+        );
+    }
+    
+    return h('div', { style: css(mergeStyle({ userSelect: 'none' }, p.style)) },
+        nodes.map(function(node) { return renderNode(node, 0); })
     );
 }

@@ -112,6 +112,141 @@ declare global {
     ): (props?: P) => HTMLElement;
 
     /**
+     * Create a router with route definitions.
+     * @example
+     * ```ts
+     * const router = createRouter({ basePath: '/app' });
+     * router
+     *   .addRoute('/', Home)
+     *   .addRoute('/users/:id', UserDetail)
+     *   .addRoute('*', NotFound)
+     *   .mount(document.getElementById('app'));
+     * ```
+     */
+    function createRouter(options?: { basePath?: string }): {
+        addRoute(path: string, component: (params?: Record<string, string>) => HTMLElement): ReturnType<typeof createRouter>;
+        navigate(path: string): void;
+        mount(container: HTMLElement): () => void;
+    };
+
+    /**
+     * Get current route path (for use inside components).
+     */
+    function useParams(): string;
+
+    /**
+     * Get URL query parameters as an object.
+     * @example
+     * ```ts
+     * const query = useQuery(); // { page: '1', search: 'foo' }
+     * ```
+     */
+    function useQuery(): Record<string, string>;
+
+    /**
+     * Navigation link component that prevents full page reload.
+     */
+    function Link(props: {
+        to: string;
+        onClick?: () => void;
+        style?: string | Record<string, string>;
+        className?: string;
+    }, ...children: any[]): HTMLElement;
+
+    /**
+     * Programmatically navigate to a route.
+     */
+    function Navigate(props: { to: string; replace?: boolean }): null;
+
+    /**
+     * Create an internationalization (i18n) instance.
+     * @example
+     * ```ts
+     * const i18n = createI18n({
+     *   locale: 'en',
+     *   messages: {
+     *     en: { greeting: 'Hello, {name}!' },
+     *     zh: { greeting: '你好，{name}！' }
+     *   }
+     * });
+     * i18n.t('greeting', { name: 'World' }); // 'Hello, World!'
+     * i18n.setLocale('zh');
+     * i18n.t('greeting', { name: '世界' }); // '你好，世界！'
+     * ```
+     */
+    function createI18n(options?: {
+        locale?: string;
+        fallbackLocale?: string;
+        messages?: Record<string, Record<string, any>>;
+    }): {
+        setLocale(locale: string): void;
+        getLocale(): string;
+        addMessages(locale: string, messages: Record<string, any>): void;
+        t(key: string, params?: Record<string, string>): string;
+        subscribe(fn: (locale: string) => void): () => void;
+    };
+
+    /**
+     * Hook to access translation functions inside components.
+     */
+    function useTranslation(): {
+        t(key: string, params?: Record<string, string>): string;
+        locale: string;
+        setLocale(locale: string): void;
+    };
+
+    /**
+     * Translation component for declarative i18n in JSX.
+     */
+    function Translate(props: {
+        i18nKey?: string;
+        id?: string;
+        params?: Record<string, string>;
+        style?: string | Record<string, string>;
+    }): HTMLElement;
+
+    /**
+     * Create a scoped style sheet that automatically isolates styles.
+     * @example
+     * ```ts
+     * const sheet = createStyleSheet({
+     *   '.button': { padding: '8px 16px', background: 'blue' },
+     *   '.button:hover': { background: 'darkblue' }
+     * });
+     * // Use withScope(sheet.scopeId, element) to apply
+     * ```
+     */
+    function createStyleSheet(styles: Record<string, Record<string, string>>): {
+        scopeId: string;
+        dispose(): void;
+    };
+
+    /**
+     * Apply scope ID to an element.
+     */
+    function withScope(scopeId: string, element: HTMLElement): HTMLElement;
+
+    /**
+     * CSS helper to create scoped inline styles.
+     * Returns an attribute object to spread into props.
+     */
+    function cssScoped(styles: Record<string, string>): Record<string, string>;
+
+    /**
+     * Keyframes helper for animations.
+     * Returns the animation name to use in style.animation.
+     * @example
+     * ```ts
+     * const fadeIn = keyframes({
+     *   '0%': { opacity: '0' },
+     *   '100%': { opacity: '1' }
+     * });
+     * h('div', { style: `animation: ${fadeIn} 0.3s ease` }, 'Hello');
+     * ```
+     */
+    function keyframes(frames: Record<string, Record<string, string>>): string;
+
+    /**
      * Register a callback to run after the component is mounted to the DOM.
      * Must be called inside a defineComponent or component function.
      * @example
@@ -340,6 +475,91 @@ declare module '/@ui' {
         duration?: number;
     }
     export function showToast(message: string, opts?: ToastOptions): void;
+
+    export interface AlertProps {
+        variant?: 'success' | 'danger' | 'warning' | 'info';
+        style?: string | Record<string, string>;
+    }
+    export function Alert(props: AlertProps, ...children: any[]): HTMLElement;
+
+    export interface ProgressProps {
+        value?: number;
+        max?: number;
+        variant?: 'primary' | 'success' | 'danger' | 'warning';
+        height?: string;
+        style?: string | Record<string, string>;
+    }
+    export function Progress(props: ProgressProps): HTMLElement;
+
+    export interface SkeletonProps {
+        width?: string;
+        height?: string;
+        circle?: boolean;
+        radius?: string;
+        style?: string | Record<string, string>;
+    }
+    export function Skeleton(props: SkeletonProps): HTMLElement;
+
+    export interface DropdownItem {
+        label: string;
+        onClick?: () => void;
+    }
+    export interface DropdownProps {
+        open?: boolean;
+        align?: 'left' | 'right';
+        items?: DropdownItem[];
+        minWidth?: string;
+        style?: string | Record<string, string>;
+    }
+    export function Dropdown(props: DropdownProps, ...children: any[]): HTMLElement;
+
+    export interface AccordionItem {
+        title: string;
+        content?: any;
+    }
+    export interface AccordionProps {
+        items?: AccordionItem[];
+        active?: number;
+        onChange?: (index: number) => void;
+        style?: string | Record<string, string>;
+    }
+    export function Accordion(props: AccordionProps): HTMLElement;
+
+    export interface BreadcrumbItem {
+        label: string;
+        href?: string;
+        onClick?: () => void;
+    }
+    export interface BreadcrumbsProps {
+        items?: BreadcrumbItem[];
+        separator?: string;
+        style?: string | Record<string, string>;
+    }
+    export function Breadcrumbs(props: BreadcrumbsProps): HTMLElement;
+
+    export interface StepItem {
+        title: string;
+        description?: string;
+    }
+    export interface StepsProps {
+        items?: StepItem[];
+        current?: number;
+        direction?: 'horizontal' | 'vertical';
+        style?: string | Record<string, string>;
+    }
+    export function Steps(props: StepsProps): HTMLElement;
+
+    export interface TimelineItem {
+        title: string;
+        description?: string;
+        time?: string;
+        color?: string;
+    }
+    export interface TimelineProps {
+        items?: TimelineItem[];
+        style?: string | Record<string, string>;
+    }
+    export function Timeline(props: TimelineProps): HTMLElement;
 }
 
 export {};

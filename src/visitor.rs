@@ -56,6 +56,12 @@ impl JsxVisitor {
                 JSXAttrOrSpread::JSXAttr(a) => {
                     if let JSXAttrName::Ident(ident) = &a.name {
                         let key_str = ident.sym.to_string();
+                        
+                        // Skip the special "key" prop - it's for diffing, not for components
+                        if key_str == "key" {
+                            continue;
+                        }
+                        
                         let key = PropName::Ident(Ident::new(key_str.into(), a.span));
 
                         let val: Box<Expr> = match &a.value {
