@@ -62,7 +62,6 @@ function scheduleEffect(effectFn) {
         queueMicrotask(function() {
             batchScheduled = false;
             var queue = batchQueue;
-            var set = batchSet;
             batchQueue = [];
             batchSet = new Set();
             // Flush all queued effects, including any added during flush
@@ -77,7 +76,6 @@ function scheduleEffect(effectFn) {
                 // Check if new effects were queued during flush
                 if (batchQueue.length === 0) break;
                 queue = batchQueue;
-                set = batchSet;
                 batchQueue = [];
                 batchSet = new Set();
             }
@@ -369,7 +367,7 @@ export function defineComponent(componentFn) {
         const dispose = effect(() => {
             const updatedEl = innerFn();
             diff(oldEl, updatedEl);
-        });
+        }, { _internal: true });
 
         // Observe only the container's direct parent, not the whole body subtree
         const parentNode = container.parentNode || document.body;
@@ -461,6 +459,21 @@ function diff(oldNode, newNode) {
     newAttrs.forEach(a => {
         oldNode.setAttribute(a, newNode.getAttribute(a));
     });
+
+    // Sync event listeners: remove old, add new
+    if (oldNode._eventListeners && Array.isArray(oldNode._eventListeners)) {
+        for (var li = 0; li < oldNode._eventListeners.length; li++) {
+            var oldL = oldNode._eventListeners[li];
+            try { oldNode.removeEventListener(oldL.event, oldL.handler); } catch(e) {}
+        }
+        oldNode._eventListeners = [];
+    }
+    if (newNode._eventListeners && Array.isArray(newNode._eventListeners)) {
+        for (var lj = 0; lj < newNode._eventListeners.length; lj++) {
+            var newL = newNode._eventListeners[lj];
+            try { oldNode.addEventListener(newL.event, newL.handler); } catch(e) {}
+        }
+    }
 
     // Style attribute sync
     if (newNode.hasAttribute('style')) {
@@ -565,15 +578,19 @@ function keyedDiff(parent, oldChildren, newChildren) {
 
     const lis = computeLIS(source);
 
-    let anchorIdx = 0;
-    for (let i = 0; i < newChildren.length; i++) {
+    // Iterate in reverse to avoid live NodeList index shifts from insertBefore/removeChild
+    for (let i = newChildren.length - 1; i >= 0; i--) {
         const newChild = newChildren[i];
         const oldIdx = newIdxToOldIdx[i];
 
         if (oldIdx === -1) {
-            const anchor = parent.childNodes[anchorIdx] || null;
-            parent.insertBefore(newChild, anchor);
-            anchorIdx++;
+            // New node: insert before the next sibling (or append if last)
+            const nextSibling = newChildren[i + 1];
+            if (nextSibling && nextSibling.parentNode === parent) {
+                parent.insertBefore(newChild, nextSibling);
+            } else {
+                parent.appendChild(newChild);
+            }
         } else {
             const oldChild = oldNodeByKey.get(newKeys[i]);
             diff(oldChild, newChild);
@@ -582,12 +599,13 @@ function keyedDiff(parent, oldChildren, newChildren) {
 
             const shouldMove = !lis.includes(i);
             if (shouldMove) {
-                const anchor = parent.childNodes[anchorIdx] || null;
-                if (anchor !== oldChild) {
-                    parent.insertBefore(oldChild, anchor);
+                const nextSibling = newChildren[i + 1];
+                if (nextSibling && nextSibling.parentNode === parent) {
+                    parent.insertBefore(oldChild, nextSibling);
+                } else {
+                    parent.appendChild(oldChild);
                 }
             }
-            anchorIdx++;
         }
     }
 }
@@ -663,7 +681,7 @@ export function h(tag, props, ...children) {
                     .join('; ');
             } else if (key === 'value' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) {
                 el.value = value;
-            } else if (key === 'checked' && el.tagName === 'INPUT') {
+            } else if (key === 'checked' && el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
                 el.checked = value;
             } else if (key === 'selectedIndex' && el.tagName === 'SELECT') {
                 el.selectedIndex = value;
