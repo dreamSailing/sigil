@@ -397,6 +397,29 @@ export function defineComponent(componentFn) {
 }
 
 // --- 5. Keyed DOM diff/patch ---
+function cleanupNodeEffects(node) {
+    if (node._signalEffects && Array.isArray(node._signalEffects)) {
+        for (var i = 0; i < node._signalEffects.length; i++) {
+            try { node._signalEffects[i](); } catch(e) {}
+        }
+        node._signalEffects = [];
+    }
+    if (node._eventListeners && Array.isArray(node._eventListeners)) {
+        for (var j = 0; j < node._eventListeners.length; j++) {
+            var listener = node._eventListeners[j];
+            try { node.removeEventListener(listener.event, listener.handler); } catch(e) {}
+        }
+        node._eventListeners = [];
+    }
+    // Recursively clean child elements that are being replaced
+    for (var k = 0; k < node.childNodes.length; k++) {
+        var child = node.childNodes[k];
+        if (child.nodeType === 1) {
+            cleanupNodeEffects(child);
+        }
+    }
+}
+
 const NODE_KEY = Symbol('_key');
 
 function getKey(node) {
@@ -411,6 +434,8 @@ function diff(oldNode, newNode) {
 
     // If keys differ (or one is keyed and other isn't), replace entirely
     if (oldKey !== newKey && (oldKey !== null || newKey !== null)) {
+        // Clean up old node's effects before replacing
+        cleanupNodeEffects(oldNode);
         if (oldNode.parentNode) {
             oldNode.parentNode.replaceChild(newNode, oldNode);
         }
@@ -419,6 +444,8 @@ function diff(oldNode, newNode) {
 
     // Same key or both unkeyed - check tag
     if (oldNode.tagName !== newNode.tagName) {
+        // Clean up old node's effects before replacing
+        cleanupNodeEffects(oldNode);
         if (oldNode.parentNode) {
             oldNode.parentNode.replaceChild(newNode, oldNode);
         }
@@ -484,6 +511,7 @@ function diff(oldNode, newNode) {
                 else if (oc.nodeType === 3 && nc.nodeType === 3) {
                     if (oc.textContent !== nc.textContent) oc.textContent = nc.textContent;
                 } else {
+                    cleanupNodeEffects(oc);
                     oldNode.replaceChild(nc, oc);
                 }
             } else if (i < newChildren.length) {
@@ -581,7 +609,8 @@ function computeLIS(arr) {
         let lo = 0, hi = tails.length;
         while (lo < hi) {
             const mid = Math.floor((lo + hi) / 2);
-            if (arr[tails[mid].oldIdx] < oldIdx) {
+            // Compare oldIdx values directly (tails[mid].oldIdx is already an old index value)
+            if (tails[mid].oldIdx < oldIdx) {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -698,16 +727,31 @@ export function Fragment(props) {
     const wrapper = document.createElement('span');
     wrapper.style.display = 'contents';
     wrapper._isFragment = true;
+    const signalEffects = [];
 
     const children = (props && props.children) || [];
     children.flat().forEach(child => {
         if (child === null || child === undefined) return;
         if (typeof child === 'string' || typeof child === 'number') {
             wrapper.appendChild(document.createTextNode(String(child)));
+        } else if (typeof child === 'object' && child !== null && child.get && !child._isTemplate) {
+            const textNode = document.createTextNode(child.get());
+            wrapper.appendChild(textNode);
+            const dispose = effect(() => { textNode.textContent = child.get(); });
+            signalEffects.push(dispose);
+        } else if (typeof child === 'object' && child !== null && child._isTemplate) {
+            const tplNode = document.createTextNode(child._resolve());
+            wrapper.appendChild(tplNode);
+            const dispose = effect(() => { tplNode.textContent = child._resolve(); });
+            signalEffects.push(dispose);
         } else if (child instanceof HTMLElement || (child instanceof Element && child._isFragment)) {
             wrapper.appendChild(child);
         }
     });
+
+    if (signalEffects.length > 0) {
+        wrapper._signalEffects = signalEffects;
+    }
     return wrapper;
 }
 
@@ -745,6 +789,7 @@ export function errorBoundary(fn) {
 const routerState = {
     routes: [],
     currentPath: '',
+    currentParams: {},
     listeners: new Set(),
     basePath: '',
 };
@@ -756,12 +801,12 @@ function normalizePath(path) {
 function matchRoute(routePath, currentPath) {
     const routeParts = routePath.split('/').filter(Boolean);
     const pathParts = currentPath.split('/').filter(Boolean);
-    
+
     // Handle wildcard routes
     if (routePath === '*' || routePath === '**') {
         return {}; // Match everything with empty params
     }
-    
+
     if (routeParts.length !== pathParts.length) {
         // Check for catch-all wildcard (e.g., '/users/*')
         if (routeParts.length > 0 && routeParts[routeParts.length - 1] === '*') {
@@ -782,7 +827,7 @@ function matchRoute(routePath, currentPath) {
         }
         return null;
     }
-    
+
     const params = {};
     for (let i = 0; i < routeParts.length; i++) {
         if (routeParts[i].startsWith(':')) {
@@ -794,43 +839,53 @@ function matchRoute(routePath, currentPath) {
     return params;
 }
 
+// Active router reference for Link/Navigate/useParams
+let activeRouterState = null;
+
 export function createRouter(options) {
     options = options || {};
-    routerState.basePath = options.basePath || '';
-    routerState.routes = [];
-    
+    const state = {
+        routes: [],
+        currentPath: '',
+        currentParams: {},
+        listeners: new Set(),
+        basePath: options.basePath || '',
+    };
+
     return {
         addRoute(path, component) {
-            routerState.routes.push({ path: normalizePath(path), component });
+            state.routes.push({ path: normalizePath(path), component });
             return this;
         },
         navigate(path) {
-            const fullPath = routerState.basePath + normalizePath(path);
+            const fullPath = state.basePath + normalizePath(path);
             window.history.pushState({}, '', fullPath);
-            routerState.currentPath = normalizePath(path);
-            routerState.listeners.forEach(fn => fn(routerState.currentPath));
+            state.currentPath = normalizePath(path);
+            state.listeners.forEach(fn => fn(state.currentPath));
         },
         mount(container) {
-            routerState.currentPath = normalizePath(window.location.pathname.replace(routerState.basePath, ''));
-            
+            // Register as active router
+            activeRouterState = state;
+            state.currentPath = normalizePath(window.location.pathname.replace(state.basePath, ''));
+
             const render = () => {
                 let matched = null;
                 let params = null;
-                
-                for (const route of routerState.routes) {
-                    params = matchRoute(route.path, routerState.currentPath);
+
+                for (const route of state.routes) {
+                    params = matchRoute(route.path, state.currentPath);
                     if (params !== null) {
                         matched = route.component;
+                        state.currentParams = params;
                         break;
                     }
                 }
-                
+
                 if (matched) {
                     const el = matched(params);
                     container.innerHTML = '';
                     container.appendChild(el);
                 } else {
-                    // Use createElement instead of innerHTML to prevent XSS
                     container.innerHTML = '';
                     const errorDiv = document.createElement('div');
                     errorDiv.style.padding = '40px';
@@ -844,24 +899,27 @@ export function createRouter(options) {
                     container.appendChild(errorDiv);
                 }
             };
-            
+
             window.addEventListener('popstate', () => {
-                routerState.currentPath = normalizePath(window.location.pathname.replace(routerState.basePath, ''));
+                state.currentPath = normalizePath(window.location.pathname.replace(state.basePath, ''));
                 render();
             });
-            
-            routerState.listeners.add(render);
+
+            state.listeners.add(render);
             render();
-            
+
             return () => {
-                routerState.listeners.delete(render);
+                state.listeners.delete(render);
+                if (activeRouterState === state) {
+                    activeRouterState = null;
+                }
             };
         }
     };
 }
 
 export function useParams() {
-    return routerState.currentPath;
+    return (activeRouterState || routerState).currentParams;
 }
 
 export function useQuery() {
@@ -876,15 +934,16 @@ export function useQuery() {
 
 export function Link(props, ...children) {
     const p = props || {};
+    const rs = activeRouterState || routerState;
     return h('a', {
-        href: routerState.basePath + normalizePath(p.to),
+        href: rs.basePath + normalizePath(p.to),
         onClick: function(e) {
             e.preventDefault();
             if (p.onClick) p.onClick();
-            const fullPath = routerState.basePath + normalizePath(p.to);
+            const fullPath = rs.basePath + normalizePath(p.to);
             window.history.pushState({}, '', fullPath);
-            routerState.currentPath = normalizePath(p.to);
-            routerState.listeners.forEach(fn => fn(routerState.currentPath));
+            rs.currentPath = normalizePath(p.to);
+            rs.listeners.forEach(fn => fn(rs.currentPath));
         },
         style: p.style || '',
         className: p.className || '',
@@ -893,18 +952,19 @@ export function Link(props, ...children) {
 
 export function Navigate(props) {
     const p = props || {};
+    const rs = activeRouterState || routerState;
     const to = p.to || '/';
     const replace = p.replace !== false;
-    
+
     if (replace) {
-        window.history.replaceState({}, '', routerState.basePath + normalizePath(to));
+        window.history.replaceState({}, '', rs.basePath + normalizePath(to));
     } else {
-        window.history.pushState({}, '', routerState.basePath + normalizePath(to));
+        window.history.pushState({}, '', rs.basePath + normalizePath(to));
     }
-    
-    routerState.currentPath = normalizePath(to);
-    routerState.listeners.forEach(fn => fn(routerState.currentPath));
-    
+
+    rs.currentPath = normalizePath(to);
+    rs.listeners.forEach(fn => fn(rs.currentPath));
+
     return null;
 }
 
