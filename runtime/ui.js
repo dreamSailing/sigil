@@ -61,12 +61,12 @@ export function Container(props, ...children) {
 
 export function Flex(props, ...children) {
     const p = props || {};
-    return h('div', { style: css({ display: 'flex', flexDirection: p.direction || 'row', alignItems: p.align || 'stretch', justifyContent: p.justify || 'flex-start', gap: p.gap || '0', flexWrap: p.wrap || 'nowrap' }, p.style) }, ...children);
+    return h('div', { style: css(mergeStyle({ display: 'flex', flexDirection: p.direction || 'row', alignItems: p.align || 'stretch', justifyContent: p.justify || 'flex-start', gap: p.gap || '0', flexWrap: p.wrap || 'nowrap' }, p.style)) }, ...children);
 }
 
 function mergeStyle(base, extra) {
     const result = Object.assign({}, base);
-    if (extra) Object.assign(result, extra);
+    if (extra && typeof extra === 'object') Object.assign(result, extra);
     return result;
 }
 
@@ -75,7 +75,7 @@ export function Grid(props, ...children) {
     const cols = Math.max(1, p.cols || 3);
     const responsive = p.responsive !== false;
     const templateCols = responsive
-        ? 'repeat(auto-fill, minmax(min(' + Math.floor(100 / cols) + '%, 280px), 1fr))'
+        ? 'repeat(auto-fill, minmax(min(calc(100% / ' + cols + '), 280px), 1fr))'
         : 'repeat(' + cols + ', 1fr)';
     return h('div', {
         className: responsive ? 'sigil-responsive-grid' : undefined,
@@ -143,11 +143,12 @@ export function Button(props, ...children) {
     };
     const currentVariant = variantStyles[variant] || variantStyles.primary;
     const currentHover = hoverStyles[variant] || hoverStyles.primary;
+    const fullStyle = mergeStyle(mergeStyle(baseStyle, sizes[size] || sizes.md), currentVariant);
 
-    return h('button', Object.assign({}, mergeStyle(mergeStyle(baseStyle, sizes[size] || sizes.md), currentVariant), p.style, {
+    return h('button', Object.assign({}, fullStyle, p.style, {
         disabled: p.disabled || undefined,
         onMouseEnter: function(e) { Object.assign(e.target.style, currentHover); },
-        onMouseLeave: function(e) { Object.assign(e.target.style, currentVariant); },
+        onMouseLeave: function(e) { Object.assign(e.target.style, fullStyle); },
     }), ...children);
 }
 
@@ -410,7 +411,7 @@ export function Tooltip(props, ...children) {
 export function Tabs(props) {
     var p = props || {};
     var tabs = p.tabs || [];
-    var active = p.active || 0;
+    var active = Math.max(0, Math.min(tabs.length - 1, p.active !== undefined ? p.active : 0));
     var onTabChange = p.onChange || function() {};
     return h('div', { style: css(p.style || {}) },
         h('div', { style: css({ display: 'flex', borderBottom: '2px solid ' + theme.colors.gray[200] }) },
@@ -551,7 +552,8 @@ export function Progress(props) {
     var p = props || {};
     var value = p.value !== undefined ? p.value : 0;
     var max = p.max || 100;
-    var percent = Math.min(100, Math.max(0, (value / max) * 100));
+    var percent = max > 0 ? Math.min(100, Math.max(0, (Number(value) / Number(max)) * 100)) : 0;
+    if (isNaN(percent)) percent = 0;
     var variant = p.variant || 'primary';
     var colorMap = {
         primary: theme.colors.primary,
