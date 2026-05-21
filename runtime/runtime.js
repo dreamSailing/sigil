@@ -155,7 +155,11 @@ export function signal(initialValue) {
 export function computed(getter) {
     const result = signal();
     let isComputing = false;
-    
+
+    // Initialize _last with the first computed value before creating the effect
+    result._last = getter();
+    result.set(result._last);
+
     effect(() => {
         if (isComputing) {
             devWarn('Circular dependency detected in computed — this may cause infinite recursion');
@@ -369,12 +373,11 @@ export function defineComponent(componentFn) {
             diff(oldEl, updatedEl);
         }, { _internal: true });
 
-        // Observe only the container's direct parent, not the whole body subtree
-        const parentNode = container.parentNode || document.body;
+        // Observe document.body with subtree:true to catch removal at any depth
         const observer = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const removed of mutation.removedNodes) {
-                    if (removed === container) {
+                    if (removed === container || containsNode(removed, container)) {
                         // Call onUnmount callbacks
                         for (var j = 0; j < lifecycleCtx.onUnmountCallbacks.length; j++) {
                             try { lifecycleCtx.onUnmountCallbacks[j](); } catch(e) {
@@ -388,13 +391,21 @@ export function defineComponent(componentFn) {
                 }
             }
         });
-        observer.observe(parentNode, { childList: true });
+        observer.observe(document.body, { childList: true, subtree: true });
 
         return container;
     };
 }
 
 // --- 5. Keyed DOM diff/patch ---
+function containsNode(parent, child) {
+    while (child) {
+        if (child === parent) return true;
+        child = child.parentNode;
+    }
+    return false;
+}
+
 function cleanupNodeEffects(node) {
     if (node._signalEffects && Array.isArray(node._signalEffects)) {
         for (var i = 0; i < node._signalEffects.length; i++) {
@@ -606,6 +617,15 @@ function keyedDiff(parent, oldChildren, newChildren) {
                     parent.appendChild(oldChild);
                 }
             }
+        }
+    }
+
+    // Clean up old children that had no key (keyedDiff only processes keyed nodes)
+    for (let j = 0; j < oldChildren.length; j++) {
+        const oldChild = oldChildren[j];
+        if (getKey(oldChild) === null && oldChild.parentNode === parent) {
+            cleanupNodeEffects(oldChild);
+            parent.removeChild(oldChild);
         }
     }
 }
@@ -886,6 +906,11 @@ export function createRouter(options) {
             activeRouterState = state;
             state.currentPath = normalizePath(window.location.pathname.replace(state.basePath, ''));
 
+            const popstateHandler = () => {
+                state.currentPath = normalizePath(window.location.pathname.replace(state.basePath, ''));
+                render();
+            };
+
             const render = () => {
                 let matched = null;
                 let params = null;
@@ -918,15 +943,12 @@ export function createRouter(options) {
                 }
             };
 
-            window.addEventListener('popstate', () => {
-                state.currentPath = normalizePath(window.location.pathname.replace(state.basePath, ''));
-                render();
-            });
-
+            window.addEventListener('popstate', popstateHandler);
             state.listeners.add(render);
             render();
 
             return () => {
+                window.removeEventListener('popstate', popstateHandler);
                 state.listeners.delete(render);
                 if (activeRouterState === state) {
                     activeRouterState = null;
