@@ -130,9 +130,13 @@ declare global {
     };
 
     /**
-     * Get current route path (for use inside components).
+     * Get current route params (for use inside components).
+     * @example
+     * ```ts
+     * const params = useParams(); // { id: '123' }
+     * ```
      */
-    function useParams(): string;
+    function useParams(): Record<string, string>;
 
     /**
      * Get URL query parameters as an object.

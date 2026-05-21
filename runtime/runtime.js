@@ -190,8 +190,8 @@ export function computed(getter) {
 }
 
 // --- 3. Effect with cleanup ---
-export function effect(fn) {
-    const effectContext = { cleanup: null, subscribers: new Set() };
+export function effect(fn, opts) {
+    const effectContext = { cleanup: null, subscribers: new Set(), _internal: opts && opts._internal };
     let firstRun = true;
     let disposed = false;
     const run = () => {
@@ -480,10 +480,23 @@ function diff(oldNode, newNode) {
         oldNode._eventListeners = [];
     }
     if (newNode._eventListeners && Array.isArray(newNode._eventListeners)) {
-        for (var lj = 0; lj < newNode._eventListeners.length; lj++) {
-            var newL = newNode._eventListeners[lj];
+        // Copy listeners from newNode to oldNode so future diffs can clean them up
+        oldNode._eventListeners = newNode._eventListeners.slice();
+        for (var lj = 0; lj < oldNode._eventListeners.length; lj++) {
+            var newL = oldNode._eventListeners[lj];
             try { oldNode.addEventListener(newL.event, newL.handler); } catch(e) {}
         }
+    }
+
+    // Sync signal effects: dispose old, transfer new
+    if (oldNode._signalEffects && Array.isArray(oldNode._signalEffects)) {
+        for (var si = 0; si < oldNode._signalEffects.length; si++) {
+            try { oldNode._signalEffects[si](); } catch(e) {}
+        }
+        oldNode._signalEffects = [];
+    }
+    if (newNode._signalEffects && Array.isArray(newNode._signalEffects)) {
+        oldNode._signalEffects = newNode._signalEffects.slice();
     }
 
     // Style attribute sync
@@ -534,6 +547,12 @@ function diff(oldNode, newNode) {
                 if (oc.nodeType === 1 && nc.nodeType === 1) diff(oc, nc);
                 else if (oc.nodeType === 3 && nc.nodeType === 3) {
                     if (oc.textContent !== nc.textContent) oc.textContent = nc.textContent;
+                    // Transfer signal effects from old textNode to new textNode
+                    // so cleanup happens when old textNode is eventually replaced
+                    if (oc._signalEffects) {
+                        nc._signalEffects = oc._signalEffects;
+                        oc._signalEffects = null;
+                    }
                 } else {
                     cleanupNodeEffects(oc);
                     oldNode.replaceChild(nc, oc);
@@ -541,6 +560,7 @@ function diff(oldNode, newNode) {
             } else if (i < newChildren.length) {
                 oldNode.appendChild(newChildren[i]);
             } else {
+                cleanupNodeEffects(oldChildren[i]);
                 oldNode.removeChild(oldChildren[i]);
             }
         }
