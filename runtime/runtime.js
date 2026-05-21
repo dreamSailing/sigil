@@ -1036,7 +1036,7 @@ export function Navigate(props) {
     const p = props || {};
     const rs = activeRouterState || routerState;
     const to = p.to || '/';
-    const replace = p.replace !== false;
+    const replace = p.replace === true;
 
     if (replace) {
         window.history.replaceState({}, '', rs.basePath + normalizePath(to));
@@ -1051,12 +1051,7 @@ export function Navigate(props) {
 }
 
 // --- 11. Internationalization (i18n) ---
-const i18nState = {
-    locale: 'en',
-    fallbackLocale: 'en',
-    messages: {},
-    listeners: new Set(),
-};
+let activeI18nInstance = null;
 
 function deepMerge(target, source) {
     const result = Object.assign({}, target);
@@ -1071,65 +1066,78 @@ function deepMerge(target, source) {
 }
 
 function getNestedValue(obj, path) {
-    return path.split('.').reduce((current, key) => current && current[key], obj);
+    if (!path) return obj;
+    if (obj === null || obj === undefined) return undefined;
+    return path.split('.').reduce(function(current, key) { return current && current[key]; }, obj);
+}
+
+function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function createI18n(options) {
     options = options || {};
-    i18nState.locale = options.locale || 'en';
-    i18nState.fallbackLocale = options.fallbackLocale || 'en';
-    i18nState.messages = options.messages || {};
-    
-    return {
+    const state = {
+        locale: options.locale || 'en',
+        fallbackLocale: options.fallbackLocale || 'en',
+        messages: options.messages ? deepMerge({}, options.messages) : {},
+        listeners: new Set(),
+    };
+
+    function t(key, params) {
+        let message = getNestedValue(state.messages[state.locale], key);
+
+        // Fallback to fallback locale
+        if (!message && state.locale !== state.fallbackLocale) {
+            message = getNestedValue(state.messages[state.fallbackLocale], key);
+        }
+
+        // If still not found, return the key
+        if (!message) {
+            return key;
+        }
+
+        // Interpolate parameters
+        if (params) {
+            Object.keys(params).forEach(function(paramKey) {
+                message = message.replace(new RegExp('\\{' + escapeRegExp(paramKey) + '\\}', 'g'), String(params[paramKey]));
+            });
+        }
+
+        return message;
+    }
+
+    const instance = {
         setLocale(locale) {
-            i18nState.locale = locale;
-            i18nState.listeners.forEach(fn => fn(locale));
+            state.locale = locale;
+            state.listeners.forEach(fn => fn(locale));
         },
         getLocale() {
-            return i18nState.locale;
+            return state.locale;
         },
         addMessages(locale, messages) {
-            if (!i18nState.messages[locale]) {
-                i18nState.messages[locale] = {};
+            if (!state.messages[locale]) {
+                state.messages[locale] = {};
             }
-            i18nState.messages[locale] = deepMerge(i18nState.messages[locale], messages);
+            state.messages[locale] = deepMerge(state.messages[locale], messages);
         },
-        t(key, params) {
-            let message = getNestedValue(i18nState.messages[i18nState.locale], key);
-            
-            // Fallback to fallback locale
-            if (!message && i18nState.locale !== i18nState.fallbackLocale) {
-                message = getNestedValue(i18nState.messages[i18nState.fallbackLocale], key);
-            }
-            
-            // If still not found, return the key
-            if (!message) {
-                return key;
-            }
-            
-            // Interpolate parameters
-            if (params) {
-                Object.keys(params).forEach(paramKey => {
-                    message = message.replace(new RegExp('\\{' + paramKey + '\\}', 'g'), params[paramKey]);
-                });
-            }
-            
-            return message;
-        },
+        t: t,
         subscribe(fn) {
-            i18nState.listeners.add(fn);
-            return () => i18nState.listeners.delete(fn);
+            state.listeners.add(fn);
+            return () => state.listeners.delete(fn);
         }
     };
+
+    activeI18nInstance = instance;
+    return instance;
 }
 
 export function useTranslation() {
     return {
-        t: i18nState.t || function(key) { return key; },
-        locale: i18nState.locale,
+        t: activeI18nInstance ? activeI18nInstance.t : function(key) { return key; },
+        locale: activeI18nInstance ? activeI18nInstance.getLocale() : 'en',
         setLocale: function(locale) {
-            i18nState.locale = locale;
-            i18nState.listeners.forEach(fn => fn(locale));
+            if (activeI18nInstance) activeI18nInstance.setLocale(locale);
         }
     };
 }
@@ -1154,11 +1162,10 @@ export function createStyleSheet(styles) {
     const scopeId = generateScopeId();
     const styleEl = document.createElement('style');
     styleEl.setAttribute('data-sigil-scope', scopeId);
-    
-    // Process styles to add scope
+
+    // Process styles to add scope - only wrap the entire selector, don't mangle individual characters
     const processedStyles = Object.keys(styles).map(selector => {
-        const scopedSelector = selector.replace(/(^|\s)([a-zA-Z])/g, `$1[${scopeId}] $2`)
-            .replace(/^([^{]+)/, `[${scopeId}] $1`);
+        const scopedSelector = '[' + scopeId + '] ' + selector;
         const rules = styles[selector];
         const cssText = Object.keys(rules).map(prop => {
             const cssProp = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
@@ -1291,7 +1298,9 @@ export function deepClone(obj, seen) {
     if (obj === null || typeof obj !== 'object') return obj;
     if (obj instanceof Date) return new Date(obj.getTime());
     if (obj instanceof RegExp) return new RegExp(obj.source, obj.flags);
-    
+    if (obj instanceof ArrayBuffer) return obj.slice(0);
+    if (ArrayBuffer.isView(obj)) return new obj.constructor(obj);
+
     seen = seen || new WeakMap();
     if (seen.has(obj)) return seen.get(obj); // Return cloned reference for circular refs
     
