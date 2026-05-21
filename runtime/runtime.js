@@ -8,7 +8,6 @@ const trackingStack = [];
 
 // Lifecycle hooks
 let currentComponent = null;
-const lifecycleStack = [];
 
 // Batch update mechanism
 let isBatching = false;
@@ -60,7 +59,6 @@ function scheduleEffect(effectFn) {
         batchQueue = [effectFn];
         batchSet = new Set([effectFn]);
         queueMicrotask(function() {
-            batchScheduled = false;
             var queue = batchQueue;
             batchQueue = [];
             batchSet = new Set();
@@ -79,6 +77,7 @@ function scheduleEffect(effectFn) {
                 batchQueue = [];
                 batchSet = new Set();
             }
+            batchScheduled = false;
         });
     } else {
         // Already scheduled, just add to queue with dedup
@@ -143,6 +142,8 @@ export function signal(initialValue) {
                 // Snapshot subscribers to avoid infinite loop when re-subscribing during notification
                 var subs = Array.from(subscribers);
                 for (var i = 0; i < subs.length; i++) {
+                    // Skip the currently running effect to prevent re-entrancy
+                    if (currentEffect && subs[i] === currentEffect.run) continue;
                     scheduleEffect(subs[i]);
                 }
             }
@@ -155,10 +156,7 @@ export function signal(initialValue) {
 export function computed(getter) {
     const result = signal();
     let isComputing = false;
-
-    // Initialize _last with the first computed value before creating the effect
-    result._last = getter();
-    result.set(result._last);
+    let firstRun = true;
 
     effect(() => {
         if (isComputing) {
@@ -168,9 +166,10 @@ export function computed(getter) {
         isComputing = true;
         try {
             const newValue = getter();
-            if (!Object.is(result._last, newValue)) {
+            if (firstRun || !Object.is(result._last, newValue)) {
                 result._last = newValue;
                 result.set(newValue);
+                firstRun = false;
             }
         } finally {
             isComputing = false;
@@ -263,7 +262,8 @@ export function watch(source, callback, options) {
     const immediate = options.immediate || false;
     let oldValue;
     let getter;
-    
+    let skipFirstCallback = immediate;
+
     if (Array.isArray(source)) {
         getter = function() {
             return source.map(function(s) {
@@ -278,16 +278,20 @@ export function watch(source, callback, options) {
         devWarn('Invalid watch source');
         return function() {};
     }
-    
+
     if (immediate) {
         oldValue = getter();
         if (callback) callback(oldValue, undefined);
     }
-    
+
     return effect(function() {
         var newValue = getter();
         if (callback) {
-            callback(newValue, oldValue);
+            if (skipFirstCallback) {
+                skipFirstCallback = false;
+            } else {
+                callback(newValue, oldValue);
+            }
         }
         oldValue = newValue;
     });
@@ -423,7 +427,7 @@ function cleanupNodeEffects(node) {
     // Recursively clean child elements that are being replaced
     for (var k = 0; k < node.childNodes.length; k++) {
         var child = node.childNodes[k];
-        if (child.nodeType === 1) {
+        if (child._signalEffects || child._eventListeners || child.nodeType === 1) {
             cleanupNodeEffects(child);
         }
     }
@@ -499,19 +503,9 @@ function diff(oldNode, newNode) {
         oldNode._signalEffects = newNode._signalEffects.slice();
     }
 
-    // Style attribute sync
-    if (newNode.hasAttribute('style')) {
-        const newStyle = newNode.getAttribute('style');
-        if (oldNode.getAttribute('style') !== newStyle) {
-            oldNode.setAttribute('style', newStyle);
-        }
-    } else if (oldNode.hasAttribute('style')) {
-        oldNode.removeAttribute('style');
-    }
-
-    // Checkbox state sync
-    if (oldNode.tagName === 'INPUT' && oldNode.type === 'checkbox') {
-        if (newNode.checked !== undefined && oldNode.checked !== newNode.checked) {
+    // Checkbox state sync — only sync if checked was explicitly set
+    if (oldNode.tagName === 'INPUT' && oldNode.type === 'checkbox' && newNode._checkedExplicit) {
+        if (oldNode.checked !== newNode.checked) {
             oldNode.checked = newNode.checked;
         }
     }
@@ -547,12 +541,7 @@ function diff(oldNode, newNode) {
                 if (oc.nodeType === 1 && nc.nodeType === 1) diff(oc, nc);
                 else if (oc.nodeType === 3 && nc.nodeType === 3) {
                     if (oc.textContent !== nc.textContent) oc.textContent = nc.textContent;
-                    // Transfer signal effects from old textNode to new textNode
-                    // so cleanup happens when old textNode is eventually replaced
-                    if (oc._signalEffects) {
-                        nc._signalEffects = oc._signalEffects;
-                        oc._signalEffects = null;
-                    }
+                    // oc stays in DOM with its effects intact; nc is discarded
                 } else {
                     cleanupNodeEffects(oc);
                     oldNode.replaceChild(nc, oc);
@@ -658,8 +647,13 @@ function computeLIS(arr) {
         if (arr[i] >= 0) positiveIndices.push(i);
     }
 
-    // tails stores {oldIdx, newIdx} of the smallest tail for each length
+    // tails[len] = { oldIdx, newIdx } of smallest tail for increasing subsequence of length len+1
     const tails = [];
+    // predecessors[i] = index in positiveIndices of predecessor element in LIS
+    const predecessors = new Array(positiveIndices.length);
+    // tailIndices[len] = index in positiveIndices of the tail element for length len+1
+    const tailIndices = [];
+
     for (let i = 0; i < positiveIndices.length; i++) {
         const newIdx = positiveIndices[i];
         const oldIdx = arr[newIdx];
@@ -667,7 +661,6 @@ function computeLIS(arr) {
         let lo = 0, hi = tails.length;
         while (lo < hi) {
             const mid = Math.floor((lo + hi) / 2);
-            // Compare oldIdx values directly (tails[mid].oldIdx is already an old index value)
             if (tails[mid].oldIdx < oldIdx) {
                 lo = mid + 1;
             } else {
@@ -675,20 +668,25 @@ function computeLIS(arr) {
             }
         }
 
+        predecessors[i] = lo > 0 ? tailIndices[lo - 1] : -1;
         const entry = { oldIdx: oldIdx, newIdx: newIdx };
         if (lo < tails.length) {
             tails[lo] = entry;
+            tailIndices[lo] = i;
         } else {
             tails.push(entry);
+            tailIndices.push(i);
         }
     }
 
     if (tails.length === 0) return [];
 
-    // Extract newIdx directly - no O(n) indexOf needed
+    // Backtrack to reconstruct the actual LIS
     const result = [];
-    for (let i = 0; i < tails.length; i++) {
-        result.push(tails[i].newIdx);
+    let idx = tailIndices[tails.length - 1];
+    while (idx !== -1) {
+        result.unshift(positiveIndices[idx]);
+        idx = predecessors[idx];
     }
     return result;
 }
@@ -708,21 +706,41 @@ export function h(tag, props, ...children) {
         Object.keys(props).forEach(key => {
             const value = props[key];
             if (key === 'className' || key === 'class') {
-                if (typeof value === 'string') el.className = value;
-                else if (typeof value === 'object' && value !== null) {
+                if (typeof value === 'object' && value !== null && value.get && !value._isTemplate) {
+                    el.className = value.get();
+                    const dispose = effect(() => { el.className = value.get(); });
+                    signalEffects.push(dispose);
+                } else if (typeof value === 'string') {
+                    el.className = value;
+                } else if (typeof value === 'object' && value !== null) {
                     el.className = Object.entries(value).filter(([,v]) => v).map(([k]) => k).join(' ');
                 }
             } else if (key.startsWith('on') && typeof value === 'function') {
                 el.addEventListener(key.slice(2).toLowerCase(), value);
                 eventListeners.push({ event: key.slice(2).toLowerCase(), handler: value });
             } else if (key === 'style' && typeof value === 'object' && value !== null) {
-                el.style.cssText = Object.entries(value)
-                    .map(([k, v]) => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase()) + ': ' + v)
-                    .join('; ');
+                if (value.get && !value._isTemplate) {
+                    var applyStyle = function() {
+                        var s = value.get();
+                        if (typeof s === 'object' && s !== null) {
+                            el.style.cssText = Object.entries(s)
+                                .map(function(entry) { return entry[0].replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); }) + ': ' + entry[1]; })
+                                .join('; ');
+                        }
+                    };
+                    applyStyle();
+                    const dispose = effect(applyStyle);
+                    signalEffects.push(dispose);
+                } else {
+                    el.style.cssText = Object.entries(value)
+                        .map(function(entry) { return entry[0].replace(/[A-Z]/g, function(m) { return '-' + m.toLowerCase(); }) + ': ' + entry[1]; })
+                        .join('; ');
+                }
             } else if (key === 'value' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) {
                 el.value = value;
             } else if (key === 'checked' && el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
                 el.checked = value;
+                el._checkedExplicit = true;
             } else if (key === 'selectedIndex' && el.tagName === 'SELECT') {
                 el.selectedIndex = value;
             } else if (key === 'data-key') {
@@ -735,6 +753,10 @@ export function h(tag, props, ...children) {
                         const v = value.get();
                         if (document.activeElement !== el) el.value = v;
                     });
+                    signalEffects.push(dispose);
+                } else if (key === 'value' && el.tagName === 'SELECT') {
+                    el.value = value.get();
+                    const dispose = effect(() => { el.value = value.get(); });
                     signalEffects.push(dispose);
                 } else {
                     el.setAttribute(key, value.get());
@@ -772,7 +794,7 @@ export function h(tag, props, ...children) {
             const dispose = effect(() => { tplNode.textContent = child._resolve(); });
             if (!el._signalEffects) el._signalEffects = [];
             el._signalEffects.push(dispose);
-        } else if (child instanceof HTMLElement || (child instanceof Element && child._isFragment)) {
+        } else if (child instanceof Node) {
             el.appendChild(child);
         }
     });
@@ -802,7 +824,7 @@ export function Fragment(props) {
             wrapper.appendChild(tplNode);
             const dispose = effect(() => { tplNode.textContent = child._resolve(); });
             signalEffects.push(dispose);
-        } else if (child instanceof HTMLElement || (child instanceof Element && child._isFragment)) {
+        } else if (child instanceof Node) {
             wrapper.appendChild(child);
         }
     });
@@ -820,7 +842,7 @@ export function reactiveTemplate(strings, ...values) {
         _resolve() {
             let result = strings[0];
             for (let i = 0; i < values.length; i++) {
-                result += (typeof values[i].get === 'function') ? values[i].get() : values[i];
+                result += (typeof values[i].get === 'function' && !values[i]._isTemplate) ? values[i].get() : values[i];
                 result += strings[i + 1];
             }
             return result;
