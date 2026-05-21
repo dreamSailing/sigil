@@ -233,8 +233,8 @@ pub fn rewrite_local_imports(code: &str) -> String {
             }
             // path now contains the actual module path (e.g., "utils/helpers" from "../../utils/helpers")
             path.to_string()
-        } else if clean.starts_with("./") {
-            clean[2..].to_string()
+        } else if let Some(stripped) = clean.strip_prefix("./") {
+            stripped.to_string()
         } else {
             clean.trim_start_matches("/").to_string()
         };
@@ -253,11 +253,11 @@ fn build_source_map_with_mappings(original_source: &str, swc_mappings: Vec<(swc_
     let mut line_mappings: Vec<Vec<(u32, u32, u32)>> = Vec::new(); // (gen_col, orig_line, orig_col)
     
     for (_, linecol) in &swc_mappings {
-        let gen_col = linecol.col as u32;
+        let gen_col = linecol.col;
         // Approximate original line/col from SWC's output
-        let orig_line = linecol.line as u32;
-        let orig_col = linecol.col as u32;
-        
+        let orig_line = linecol.line;
+        let orig_col = linecol.col;
+
         let gen_line = linecol.line as usize;
         while line_mappings.len() <= gen_line {
             line_mappings.push(Vec::new());
@@ -327,7 +327,7 @@ fn vlq_encode_segment(value: i32) -> String {
     
     // Use safe zigzag encoding to avoid overflow for i32::MIN
     // zigzag: (value << 1) ^ (value >> 31)
-    let vlq = ((value << 1) ^ (value >> 31)) as u32;
+    let vlq = (value.wrapping_shl(1) ^ (value >> 31)) as u32;
     
     let base64_chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::new();

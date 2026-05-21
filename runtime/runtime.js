@@ -719,7 +719,7 @@ export function h(tag, props, ...children) {
                 el.addEventListener(key.slice(2).toLowerCase(), value);
                 eventListeners.push({ event: key.slice(2).toLowerCase(), handler: value });
             } else if (key === 'style' && typeof value === 'object' && value !== null) {
-                if (value.get && !value._isTemplate) {
+                if (typeof value.get === 'function' && !value._isTemplate) {
                     var applyStyle = function() {
                         var s = value.get();
                         if (typeof s === 'object' && s !== null) {

@@ -4,7 +4,7 @@
 // Sigil UI Component Library — v0.1.0
 // Headless + inline styles, zero external dependencies
 
-import { h } from '/@runtime';
+import { h, signal, computed, effect, onMount, onUnmount } from '/@runtime';
 
 // --- Theme ---
 const theme = {
@@ -338,6 +338,7 @@ export function Modal(props, ...children) {
             boxShadow: theme.shadows.lg, maxWidth: p.maxWidth || '512px',
             width: '90%', maxHeight: '80vh', overflow: 'auto',
             padding: p.padding || theme.spacing[6],
+            position: 'relative',
         }, p.style)) },
             h('button', {
                 onClick: p.onClose,
@@ -411,6 +412,7 @@ export function Tooltip(props, ...children) {
 export function Tabs(props) {
     var p = props || {};
     var tabs = p.tabs || [];
+    if (tabs.length === 0) return null;
     var active = Math.max(0, Math.min(tabs.length - 1, p.active !== undefined ? p.active : 0));
     var onTabChange = p.onChange || function() {};
     return h('div', { style: css(p.style || {}) },
@@ -510,7 +512,7 @@ export function Pagination(props) {
     };
 
     var navBtns = [
-        h('button', { disabled: page <= 1, onClick: function() { onChange(page - 1); }, style: btnStyle(page <= 1, false) }, String.fromCharCode(8249)),
+        h('button', { disabled: page <= 1, onClick: function() { if (page > 1) onChange(page - 1); }, style: btnStyle(page <= 1, false) }, String.fromCharCode(8249)),
     ];
     var pageBtns = pages.map(function(pg) {
         if (typeof pg === 'number') {
@@ -518,7 +520,7 @@ export function Pagination(props) {
         }
         return h('span', { style: css({ color: theme.colors.gray[400], padding: '0 ' + theme.spacing[1] }) }, String.fromCharCode(8230));
     });
-    var nextBtn = h('button', { disabled: page >= total, onClick: function() { onChange(page + 1); }, style: btnStyle(page >= total, false) }, String.fromCharCode(8250));
+    var nextBtn = h('button', { disabled: page >= total, onClick: function() { if (page < total) onChange(page + 1); }, style: btnStyle(page >= total, false) }, String.fromCharCode(8250));
 
     return h('div', { style: css({ display: 'flex', alignItems: 'center', gap: theme.spacing[2], justifyContent: p.align || 'center' }) },
         navBtns.concat(pageBtns).concat([nextBtn])
@@ -635,8 +637,8 @@ export function Dropdown(props, ...children) {
                         background: 'transparent', border: 'none', borderRadius: theme.radii.sm,
                         cursor: 'pointer',
                     }),
-                    onMouseEnter: function(e) { e.target.style.background = theme.colors.gray[100]; },
-                    onMouseLeave: function(e) { e.target.style.background = 'transparent'; },
+                    onMouseEnter: function(e) { e.currentTarget.style.background = theme.colors.gray[100]; },
+                    onMouseLeave: function(e) { e.currentTarget.style.background = 'transparent'; },
                 }, item.label || '');
             }) : null
         )
@@ -1090,8 +1092,8 @@ export function Tree(props) {
                     alignItems: 'center',
                     gap: theme.spacing[2],
                 }),
-                onMouseEnter: function(e) { e.target.style.background = theme.colors.gray[100]; },
-                onMouseLeave: function(e) { e.target.style.background = 'transparent'; },
+                onMouseEnter: function(e) { e.currentTarget.style.background = theme.colors.gray[100]; },
+                onMouseLeave: function(e) { e.currentTarget.style.background = 'transparent'; },
             },
                 hasChildren ? h('span', {
                     style: css({

@@ -100,7 +100,7 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                         if path.extension().is_some_and(|e| e == "tsx" || e == "ts" || e == "js") {
                             // Only invalidate the specific changed file
                             if let Ok(relative) = path.strip_prefix(&watch_prefix) {
-                                let key = relative.to_string_lossy().to_string();
+                                let key = relative.to_string_lossy().replace('\\', "/");
                                 // C3 fix: Handle poisoned mutex
                                 let mut cache = cache_clone.lock().unwrap_or_else(|e| e.into_inner());
                                 if cache.remove(&key).is_some() {
@@ -307,6 +307,7 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
         .route("/src/*file", compile_route)
         .fallback_service(get(move |req: axum::http::Request<Body>| {
             let root = root_dir.clone();
+            let canonical_root = canonical_src_dir.clone();
             async move {
                 let path = req.uri().path().trim_start_matches('/');
                 if path.is_empty() {
@@ -326,7 +327,25 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                     }
                 } else {
                     let full_path = root.join(path);
-                    if full_path.exists() && full_path.is_file() {
+                    // Security: prevent path traversal
+                    let canonical_path = match full_path.canonicalize() {
+                        Ok(p) => p,
+                        Err(_) => {
+                            return Response::builder()
+                                .status(StatusCode::NOT_FOUND)
+                                .header(header::CONTENT_TYPE, "text/plain")
+                                .body(Body::from("Not found"))
+                                .expect("response build failed");
+                        }
+                    };
+                    if !canonical_path.starts_with(&*canonical_root) {
+                        return Response::builder()
+                            .status(StatusCode::FORBIDDEN)
+                            .header(header::CONTENT_TYPE, "text/plain")
+                            .body(Body::from("Access denied"))
+                            .expect("response build failed");
+                    }
+                    if canonical_path.is_file() {
                         let content_type = mime_type_guess(&full_path);
                         match std::fs::read(&full_path) {
                             Ok(data) => Response::builder()

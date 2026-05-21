@@ -173,7 +173,22 @@ impl JsxVisitor {
                         expr: c.expr.clone(),
                     })
                 }
-                _ => None,
+                JSXElementChild::JSXElement(inner) => {
+                    // Recursively transform nested JSX elements
+                    let transformed = self.transform_jsx_element((**inner).clone());
+                    Some(ExprOrSpread {
+                        spread: None,
+                        expr: Box::new(transformed),
+                    })
+                }
+                JSXElementChild::JSXFragment(inner) => {
+                    // Transform nested JSX fragments
+                    let transformed = self.transform_jsx_fragment(inner.clone());
+                    Some(ExprOrSpread {
+                        spread: None,
+                        expr: Box::new(transformed),
+                    })
+                }
             })
             .collect();
 
@@ -309,7 +324,7 @@ impl JsxVisitor {
         }
     }
 
-    fn transform_jsx_fragment(&self, frag: JSXFragment) -> Expr {
+    fn transform_jsx_fragment(&mut self, frag: JSXFragment) -> Expr {
         let children: Vec<ExprOrSpread> = frag
             .children
             .iter()
@@ -345,14 +360,27 @@ impl JsxVisitor {
                         expr: c.expr.clone(),
                     })
                 }
-                _ => None,
+                JSXElementChild::JSXElement(inner) => {
+                    let transformed = self.transform_jsx_element((**inner).clone());
+                    Some(ExprOrSpread {
+                        spread: None,
+                        expr: Box::new(transformed),
+                    })
+                }
+                JSXElementChild::JSXFragment(inner) => {
+                    let transformed = self.transform_jsx_fragment(inner.clone());
+                    Some(ExprOrSpread {
+                        spread: None,
+                        expr: Box::new(transformed),
+                    })
+                }
             })
             .collect();
 
         // Fragment expects props object with children array: Fragment({ children: [...] })
         let children_array = Expr::Array(ArrayLit {
             span: frag.span,
-            elems: children.into_iter().map(|c| Some(c)).collect(),
+            elems: children.into_iter().map(Some).collect(),
         });
 
         let props_obj = Expr::Object(ObjectLit {
