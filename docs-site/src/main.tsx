@@ -54,6 +54,8 @@ var App = defineComponent(function() {
     var currentPage = signal(getPageFromHash());
 
     effect(function() {
+        // Read signal to establish reactive dependency
+        currentPage.get();
         var hashChange = function() {
             currentPage.set(getPageFromHash());
         };

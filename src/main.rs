@@ -110,8 +110,8 @@ fn scaffold_project(name: &str) -> Result<()> {
     // Create main.tsx
     fs::write(
         project_dir.join("src/main.tsx"),
-        r#"import { signal, defineComponent, h, onMount } from '/@runtime';
-import { Button } from '/@ui';
+        r#"import { signal, defineComponent, h } from '/@runtime';
+import { Button, Heading, Text, Stack } from '/@ui';
 
 export const App = defineComponent(() => {
     const count = signal(0);
@@ -121,14 +121,16 @@ export const App = defineComponent(() => {
     });
 
     return () => h('div', { style: 'padding: 24px; max-width: 400px; margin: 0 auto;' },
-        h('h1', { style: 'font-size: 24px; margin-bottom: 16px;' }, 'Sigil App'),
-        h('p', { style: 'margin-bottom: 12px;' }, 'Count: ', count),
+        h(Heading, { level: 'h1' }, 'Sigil App'),
+        h(Text, {}, 'Count: ' + count.get()),
         h(Button, {
             variant: 'primary',
             onClick: () => count.set(count.get() + 1),
         }, 'Increment'),
     );
 });
+
+document.body.appendChild(App());
 "#,
     )?;
     println!("  ✅ src/main.tsx");

@@ -5,7 +5,6 @@ import { CodeBlock, ApiTable } from '../components/Widgets.tsx';
 
 export const ComponentsPage = defineComponent(() => {
     const showModal = signal(false);
-    const toastShown = signal(false);
 
     return () => h('div', { style: 'max-width: 900px; padding: 32px 0;' },
         h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '🧩 UI 组件'),
@@ -125,6 +124,11 @@ export const ComponentsPage = defineComponent(() => {
                 h('div', { style: 'display: flex; gap: 8px;' },
                     Button({ variant: 'primary', onClick: function() { showModal.set(true); } }, '打开 Modal'),
                     Button({ variant: 'secondary', onClick: function() { showToast('操作成功！'); } }, '显示 Toast')
+                ),
+                // Modal renders conditionally based on showModal signal
+                h(Modal, { open: showModal.get(), onClose: function() { showModal.set(false); } },
+                    h('h2', {}, '弹窗标题'),
+                    h('p', { style: 'margin-top: 8px;' }, '这是一个 Modal 弹窗示例')
                 )
             ),
             h(CodeBlock, { lang: 'tsx', code: "Modal({ open: isOpen, onClose: () => setIsOpen(false) },\n  h('h2', {}, 'Title'),\n  h('p', {}, 'Content')\n)\n\nshowToast('Success!')" })

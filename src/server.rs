@@ -14,9 +14,28 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use tower_http::services::ServeDir;
 use tower_http::compression::CompressionLayer;
 use crate::compiler;
+
+/// MIME type mapping for static file serving
+fn mime_type_guess(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("html") | Some("htm") => "text/html",
+        Some("js") | Some("mjs") | Some("ts") | Some("tsx") | Some("jsx") => "application/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("webp") => "image/webp",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("ttf") => "font/ttf",
+        Some("ico") => "image/x-icon",
+        _ => "application/octet-stream",
+    }
+}
 
 /// Cached compilation result
 #[derive(Clone)]
@@ -286,7 +305,51 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
         .route("/@ui", ui_route)
         .route("/@reload", reload_route)
         .route("/src/*file", compile_route)
-        .fallback_service(ServeDir::new(root_dir))
+        .fallback_service(get(move |req: axum::http::Request<Body>| {
+            let root = root_dir.clone();
+            async move {
+                let path = req.uri().path().trim_start_matches('/');
+                if path.is_empty() {
+                    // Serve index.html for root
+                    let full_path = root.join("index.html");
+                    match std::fs::read_to_string(&full_path) {
+                        Ok(content) => Response::builder()
+                            .header(header::CONTENT_TYPE, "text/html")
+                            .header(header::CACHE_CONTROL, "no-cache")
+                            .body(Body::from(content))
+                            .expect("response build failed"),
+                        Err(e) => Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .header(header::CONTENT_TYPE, "text/plain")
+                            .body(Body::from(format!("Not found: {}", e)))
+                            .expect("response build failed"),
+                    }
+                } else {
+                    let full_path = root.join(path);
+                    if full_path.exists() && full_path.is_file() {
+                        let content_type = mime_type_guess(&full_path);
+                        match std::fs::read(&full_path) {
+                            Ok(data) => Response::builder()
+                                .header(header::CONTENT_TYPE, content_type)
+                                .header(header::CACHE_CONTROL, "no-cache")
+                                .body(Body::from(data))
+                                .expect("response build failed"),
+                            Err(e) => Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                .header(header::CONTENT_TYPE, "text/plain")
+                                .body(Body::from(format!("Read error: {}", e)))
+                                .expect("response build failed"),
+                        }
+                    } else {
+                        Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .header(header::CONTENT_TYPE, "text/plain")
+                            .body(Body::from("Not found"))
+                            .expect("response build failed")
+                    }
+                }
+            }
+        }))
         .layer(CompressionLayer::new());
 
     // Bind to port with auto-increment on conflict (max 10 attempts)

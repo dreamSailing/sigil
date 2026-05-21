@@ -224,7 +224,8 @@ export function effect(fn) {
             }
             
             // Check for no dependencies warning BEFORE popping
-            if (firstRun && DEV_MODE) {
+            // Skip internal effects (used by defineComponent's reactivity loop)
+            if (firstRun && DEV_MODE && !effectContext._internal) {
                 firstRun = false;
                 const currentCtx = trackingStack[trackingStack.length - 1];
                 if (currentCtx && currentCtx.dependencies.size === 0) {

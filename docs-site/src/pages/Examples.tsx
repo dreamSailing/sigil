@@ -196,7 +196,10 @@ const DashboardDemo = defineComponent(() => {
     });
 
     // Simulate real-time data updates
+    var tick = signal(0);
     effect(function() {
+        // Read tick to establish reactive dependency for periodic updates
+        tick.get();
         var timer = setInterval(function() {
             prevUsers.set(users.get());
             users.set(users.get() + Math.floor(Math.random() * 5) + 1);
@@ -205,6 +208,7 @@ const DashboardDemo = defineComponent(() => {
             orders.set(orders.get() + (Math.random() > 0.5 ? 1 : 0));
             var c = conversion.get();
             conversion.set(+(c + (Math.random() - 0.5) * 0.2).toFixed(1));
+            tick.set(tick.get() + 1); // trigger effect re-run for next cycle
         }, 2000);
         return function() { clearInterval(timer); };
     });
@@ -214,7 +218,7 @@ const DashboardDemo = defineComponent(() => {
     }
 
     function statCard(label, value, accent, growth) {
-        var g = growth !== undefined ? growth.get() : '';
+        var g = typeof growth === 'object' && growth !== null && typeof growth.get === 'function' ? growth.get() : '';
         var isPositive = g !== undefined && parseFloat(g) >= 0;
         return h('div', { style: 'padding: 20px; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-left: 4px solid ' + accent + ';' },
             h('div', { style: 'font-size: 13px; color: #6b7280; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;' }, label),
@@ -575,7 +579,7 @@ const ShoppingCartDemo = defineComponent(() => {
     });
 
     var cartCount = computed(function() {
-        return cartItems().length;
+        return cartItems.get().length;
     });
 
     function changeQty(id, delta) {
@@ -594,7 +598,7 @@ const ShoppingCartDemo = defineComponent(() => {
             }
         }
         products.set(updated);
-        shipping.set(cartItems().length > 0 && subtotal.get() < 500 ? 15 : 0);
+        shipping.set(cartItems.get().length > 0 && subtotal.get() < 500 ? 15 : 0);
     }
 
     return () => h('div', { style: 'padding: 24px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;' },
@@ -603,14 +607,14 @@ const ShoppingCartDemo = defineComponent(() => {
             '测试能力：列表数量操作 + computed 多步聚合 + 条件渲染 + 空状态'
         ),
 
-        cartItems().length === 0
+        cartItems.get().length === 0
             ? h('div', { style: 'padding: 32px; text-align: center; color: #9ca3af;' },
                 h('div', { style: 'font-size: 48px; margin-bottom: 8px;' }, '\uD83D\uDED2'),
                 h('div', { style: 'font-size: 14px;' }, '购物车是空的，点击 + 号添加商品')
               )
             : h('div', {},
                 // Cart items
-                ...cartItems().map(function(item) {
+                ...cartItems.get().map(function(item) {
                     return h('div', {
                         style: 'display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #fed7aa;'
                     },
