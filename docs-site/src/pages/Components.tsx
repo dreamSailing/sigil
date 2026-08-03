@@ -2,15 +2,21 @@
 // SPDX-License-Identifier: MIT
 
 import { CodeBlock, ApiTable } from '../components/Widgets.tsx';
+import { SIGIL_UI_COMPONENT_COUNT, SIGIL_UI_COMPONENTS } from '../generated/contracts.ts';
 
 export const ComponentsPage = defineComponent(() => {
     const showModal = signal(false);
+    const componentSummary = SIGIL_UI_COMPONENTS.map(function(item) {
+        var suffix = item.stability === 'experimental' ? ' (experimental)' : '';
+        return item.name + suffix;
+    }).join(', ');
 
     return () => h('div', { style: 'max-width: 900px; padding: 32px 0;' },
         h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '🧩 UI 组件'),
         h('p', { style: 'font-size: 16px; color: #6b7280; margin: 0 0 48px 0; line-height: 1.6;' },
-            '28 内置 UI 组件，零外部 CSS 文件，样式内联注入，开箱即用'
+            SIGIL_UI_COMPONENT_COUNT + ' 个内置 UI 组件，零外部 CSS 文件，样式内联注入，开箱即用。实验组件会在文档中显式标记。'
         ),
+        h('p', { style: 'font-size: 14px; color: #4b5563; margin: -24px 0 32px 0; line-height: 1.8;' }, componentSummary),
 
         // Layout
         h('div', { style: 'margin-bottom: 64px;' },

@@ -55,7 +55,7 @@ sig serve --port 3000
 
 Importing from multiple packages to render a simple UI increases the chance of picking the wrong API.
 
-**Sigil's answer**: 28 UI components from a single `/@ui` import. Zero external CSS files — styles injected inline at runtime.
+**Sigil's answer**: a single `/@ui` import surface backed by a checked registry. Zero external CSS files — styles injected inline at runtime.
 
 ## Quick start
 
@@ -70,33 +70,35 @@ cargo build --release
 ### Create a project
 
 ```bash
-mkdir my-app && cd my-app
-mkdir src
+sig new my-app
+cd my-app
 ```
 
 ### Write your first component
 
 **`src/main.tsx`**
 
+<!-- sigil-example:quickstart:start -->
 ```tsx
 import { signal, defineComponent, h } from '/@runtime';
 import { Button, Heading, Text, Stack } from '/@ui';
 
-const App = defineComponent(() => {
+export const App = defineComponent(() => {
   const count = signal(0);
 
-  return () => h(Stack, { gap: '16px', style: 'padding: 40px;' },
+  return () => h(Stack, { gap: '16px', style: { padding: '40px' } },
     h(Heading, { level: 'h1' }, 'Hello Sigil!'),
     h(Text, {}, 'Count: ' + count.get()),
     h(Button, {
       variant: 'primary',
       onClick: () => count.set(count.get() + 1),
-    }, 'Increment')
+    }, 'Increment'),
   );
 });
 
 document.body.appendChild(App());
 ```
+<!-- sigil-example:quickstart:end -->
 
 ### Start the dev server
 
@@ -127,9 +129,16 @@ sig build --output dist
 
 Full API reference: [Documentation Site](http://localhost:3000/#api)
 
+## Contract policy
+
+- Public API registry: `metadata/contracts.json`
+- Generated compiler/docs metadata: `src/generated_contracts.rs`, `docs-site/src/generated/contracts.ts`
+- AI usage rules: `AI_GUIDE.md`
+- Error reference and migration policy: `docs/ERRORS.md`, `docs/MIGRATION.md`
+
 ## SigUI
 
-36 built-in components, zero external CSS files:
+41 built-in components, zero external CSS files:
 
 | Category | Components |
 |----------|-----------|
@@ -138,9 +147,10 @@ Full API reference: [Documentation Site](http://localhost:3000/#api)
 | Data | Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, EmptyState, Timeline |
 | Form | Button, Input, Textarea, SearchInput, Checkbox, Select |
 | Feedback | Modal, showToast, Tooltip, Alert, Progress, Skeleton |
-| Navigation | Tabs, Pagination, Breadcrumbs, Steps, Link |
+| Navigation | Tabs, Pagination, Breadcrumbs, Steps |
 | Overlay | Dropdown, Accordion |
 | Other | Separator, Divider |
+| Advanced | VirtualList, AutoComplete, ColorPicker, Rating, Tree |
 
 ## Architecture
 
@@ -154,8 +164,12 @@ sigil/
 │   └── builder.rs        # Production build
 ├── runtime/
 │   ├── runtime.js        # signal/computed/effect/h/diff
-│   ├── ui.js             # SigUI — 28 components
+│   ├── ui.js             # SigUI — registry-backed components
 │   └── types.d.ts        # TypeScript declarations
+├── metadata/
+│   └── contracts.json    # Single source of truth for public runtime/UI contract
+├── scripts/
+│   └── generate-contracts.mjs
 ├── demo-project/         # Demo application
 ├── docs-site/            # Documentation website (built with Sigil)
 ├── Cargo.toml
@@ -206,7 +220,7 @@ sig serve --port 3000
 
 ### 痛点四：API 层次过深
 
-**Sigil 的答案**：28 个组件从单一 `/@ui` 导入，零外部 CSS 文件，样式内联注入。
+**Sigil 的答案**：`/@ui` 的公开能力由统一 registry 驱动，零外部 CSS 文件，样式内联注入。
 
 ## 快速开始
 
@@ -215,7 +229,8 @@ git clone https://github.com/DreamSailing/sigil
 cd sigil
 cargo build --release
 
-mkdir my-app && cd my-app && mkdir src
+sig new my-app
+cd my-app
 sig serve --port 3000
 ```
 
@@ -235,7 +250,7 @@ sig serve --port 3000
 
 ## SigUI 组件库
 
-36 个组件，零外部 CSS 文件：Container, Flex, Grid, Stack, Heading, Text, Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, Checkbox, Divider, EmptyState, SearchInput, Modal, showToast, Tooltip, Tabs, Select, Pagination, Separator, Alert, Progress, Skeleton, Dropdown, Accordion, Breadcrumbs, Steps, Timeline
+41 个组件，零外部 CSS 文件：Container, Flex, Grid, Stack, Heading, Text, Card, Badge, Avatar, Stat, Table, TableHeader, TableBody, TableRow, EmptyState, Timeline, Button, Input, Textarea, SearchInput, Checkbox, Select, Modal, showToast, Tooltip, Alert, Progress, Skeleton, Tabs, Pagination, Breadcrumbs, Steps, Dropdown, Accordion, Separator, Divider, VirtualList, AutoComplete, ColorPicker, Rating, Tree
 
 ## 贡献
 

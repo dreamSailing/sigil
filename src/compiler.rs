@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use anyhow::Result;
+use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
 use swc_core::common::{sync::Lrc, FileName, SourceMap, Mark, Globals, GLOBALS};
 use swc_core::common::errors::{Handler, Emitter, DiagnosticBuilder, HANDLER};
@@ -12,20 +13,73 @@ use swc_core::ecma::transforms::base::resolver;
 use swc_core::ecma::visit::{Visit, VisitWith, FoldWith};
 
 use crate::visitor::JsxVisitor;
+use crate::generated_contracts::{ALL_UI_COMPONENTS, RUNTIME_IMPORTS};
 
-/// Known UI component names exported from /@ui
-const ALL_UI_COMPONENTS: &[&str] = &[
-    "Button", "Input", "Textarea", "Card", "Badge", "Avatar", "Stat", "Flex", "Grid",
-    "Container", "Stack", "Heading", "Text", "Checkbox", "Divider",
-    "EmptyState", "SearchInput", "Table", "TableHeader", "TableBody",
-    "TableRow", "Separator", "Tabs", "Tooltip", "Modal", "Select", "Pagination",
-    "showToast", "Alert", "Progress", "Skeleton", "Dropdown", "Accordion",
-    "Breadcrumbs", "Steps", "Timeline", "VirtualList", "AutoComplete",
-    "ColorPicker", "Rating", "Tree",
-];
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileLocation {
+    pub file: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileDiagnostic {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<CompileLocation>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CompileError {
+    diagnostics: Vec<CompileDiagnostic>,
+}
+
+impl CompileError {
+    fn new(diagnostics: Vec<CompileDiagnostic>) -> Self {
+        Self { diagnostics }
+    }
+
+    pub fn diagnostics(&self) -> &[CompileDiagnostic] {
+        &self.diagnostics
+    }
+}
+
+impl std::fmt::Display for CompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Compilation failed:")?;
+        for diagnostic in &self.diagnostics {
+            match &diagnostic.location {
+                Some(location) => {
+                    writeln!(
+                        f,
+                        "[{}:{}:{}] {}",
+                        location.file,
+                        location.line,
+                        location.column,
+                        diagnostic.message
+                    )?;
+                }
+                None => {
+                    writeln!(f, "{}", diagnostic.message)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for CompileError {}
+
+pub fn extract_compile_diagnostics(error: &anyhow::Error) -> Option<Vec<CompileDiagnostic>> {
+    error
+        .downcast_ref::<CompileError>()
+        .map(|compile_error| compile_error.diagnostics().to_vec())
+}
 
 struct ErrorCapturer {
-    errors: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    errors: std::sync::Arc<std::sync::Mutex<Vec<CompileDiagnostic>>>,
     cm: Lrc<SourceMap>,
 }
 
@@ -39,13 +93,23 @@ impl Emitter for ErrorCapturer {
     fn emit(&mut self, db: &DiagnosticBuilder<'_>) {
         // C3 fix: Handle poisoned mutex gracefully
         let mut lock = self.errors.lock().unwrap_or_else(|e| e.into_inner());
-        let message = if let Some(span) = db.span.primary_span() {
+        let diagnostic = if let Some(span) = db.span.primary_span() {
             let loc = self.cm.lookup_char_pos(span.lo());
-            format!("[{}:{}:{}] {}", loc.file.name, loc.line, loc.col_display + 1, db.message[0].0)
+            CompileDiagnostic {
+                message: db.message[0].0.to_string(),
+                location: Some(CompileLocation {
+                    file: loc.file.name.to_string(),
+                    line: loc.line,
+                    column: loc.col_display + 1,
+                }),
+            }
         } else {
-            db.message.iter().map(|m| m.0.to_string()).collect::<Vec<_>>().join(" ")
+            CompileDiagnostic {
+                message: db.message.iter().map(|m| m.0.to_string()).collect::<Vec<_>>().join(" "),
+                location: None,
+            }
         };
-        lock.push(message);
+        lock.push(diagnostic);
     }
 }
 
@@ -86,8 +150,7 @@ pub fn transform_tsx_with_options_at_path(source: &str, module_path: &Path, mini
     .and_then(|output| {
         let errors = error_buf.lock().unwrap();
         if !errors.is_empty() {
-            let msg = errors.join("\n");
-            return Err(anyhow::anyhow!("Compilation failed:\n{}", msg));
+            return Err(anyhow::Error::new(CompileError::new(errors.clone())));
         }
         Ok(output)
     })
@@ -109,7 +172,10 @@ fn do_transform(cm: &Lrc<SourceMap>, source: &str, module_path: &Path, minify: b
     let mut parser = Parser::new_from(lexer);
     let mut module = parser
         .parse_module()
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        .map_err(|e| anyhow::Error::new(CompileError::new(vec![CompileDiagnostic {
+            message: format!("{:?}", e),
+            location: None,
+        }])))?;
 
     // 2. Pre-scan: collect used UI component names at AST level
     let used_ui = scan_ui_components(&module);
@@ -160,11 +226,8 @@ fn do_transform(cm: &Lrc<SourceMap>, source: &str, module_path: &Path, minify: b
         format!("import {{ {} }} from '/@ui';\n", used_ui.join(", "))
     };
 
-    let mut final_code = format!(
-        "import {{ signal, computed, effect, h, defineComponent, reactiveTemplate, Fragment, errorBoundary, createRouter, Link, Navigate, useParams, useQuery, createI18n, useTranslation, Translate, createStyleSheet, withScope, cssScoped, keyframes, onMount, onUnmount, batch, watch, watchEffect, ref, unref, toRef, toRefs, memo, debounce, throttle, deepClone, deepEqual, nextTick, clamp, range, uniqueId, createEventEmitter, createValidator, validators }} from '/@runtime';\n{}{}",
-        ui_import,
-        rewritten
-    );
+    let runtime_import = format!("import {{ {} }} from '/@runtime';\n", RUNTIME_IMPORTS.join(", "));
+    let mut final_code = format!("{}{}{}", runtime_import, ui_import, rewritten);
 
     final_code.push_str(&source_map_json);
 
@@ -215,6 +278,13 @@ impl Visit for UiComponentVisitor {
         if let Callee::Expr(callee) = &call.callee {
             if let Expr::Ident(ident) = callee.as_ref() {
                 self.maybe_add(ident.sym.as_ref());
+                if ident.sym.as_ref() == "h" {
+                    if let Some(first_arg) = call.args.first() {
+                        if let Expr::Ident(component_ident) = first_arg.expr.as_ref() {
+                            self.maybe_add(component_ident.sym.as_ref());
+                        }
+                    }
+                }
             }
         }
         // Recurse into args
@@ -556,5 +626,16 @@ const App = defineComponent(() => {
         assert!(min_newlines <= non_newlines);
         // Both should still contain the h() call
         assert!(min.contains("h(\"div\""));
+    }
+
+    #[test]
+    fn test_transform_tsx_detects_ui_component_in_h_call() {
+        let source = r#"
+export function CodeBlock() {
+    return h("div", {}, h(Badge, { variant: "info" }, "beta"));
+}
+"#;
+        let compiled = transform_tsx_at_path(source, Path::new("components/Widgets.tsx")).unwrap();
+        assert!(compiled.js.contains("import { Badge } from '/@ui';"));
     }
 }

@@ -14,5 +14,6 @@ export {
     Text,
     Divider,
     Stat,
-    Rating
+    Rating,
+    Tree
 } from './ui-testable-temp.js';

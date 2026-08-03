@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { CodeBlock } from '../components/Widgets.tsx';
+import { SIGIL_UI_COMPONENT_COUNT } from '../generated/contracts.ts';
 
 // AI difficulty annotations for each comparison
 function PainPointBadge(props) {
@@ -318,16 +319,15 @@ export const ComparisonPage = defineComponent(() => {
                         h(PainPointBadge, { severity: 'low' })
                     ),
                     h(CodeBlock, { lang: 'text', code: [
-                        '// 零配置文件',
+                        '// 零构建配置',
                         '',
                         '// 不需要 vite.config.ts',
-                        '// 不需要 tsconfig.json',
                         '// 不需要 package.json',
                         '// 不需要 .eslintrc',
+                        '// tsconfig.json 由 CLI 生成，仅服务编辑器类型',
                         '',
-                        'mkdir my-app && cd my-app',
-                        'mkdir src',
-                        '// 写代码...',
+                        'sig new my-app',
+                        'cd my-app',
                         'sig serve --port 3000',
                         '',
                         '// TSX 编译、热重载、',
@@ -404,7 +404,7 @@ export const ComparisonPage = defineComponent(() => {
                         h(PainPointBadge, { severity: 'low' })
                     ),
                     h(CodeBlock, { lang: 'tsx', code: [
-                        '// 1 个 import，28 个组件全部可用',
+                        '// 1 个 import，组件能力由 registry 驱动',
                         'import {',
                         '  Button, Card, Heading,',
                         '  Text, Stack, Badge',
@@ -421,6 +421,9 @@ export const ComparisonPage = defineComponent(() => {
                     ].join('\n') })
                 )
             )
+        ),
+        h('p', { style: 'font-size: 14px; color: #1e40af; margin: 12px 0 0 0;' },
+            '当前 SigUI 共 ' + SIGIL_UI_COMPONENT_COUNT + ' 个组件，数量由 metadata/contracts.json 单一事实源生成。'
         ),
 
         // === Summary table ===
@@ -445,7 +448,7 @@ export const ComparisonPage = defineComponent(() => {
                             ['依赖追踪', '🔴 高 — 手动维护依赖数组，漏加/多加都出错', '🟡 中 — watchEffect 自动但边界情况多', '🟢 无脑 — 调用 .get() 自动建立依赖'],
                             ['虚拟 DOM', '🟡 中 — reconciliation 黑盒，key 策略难理解', '🟡 中 — 编译优化但运行时仍有抽象层', '🟢 透明 — 直接 DOM 操作'],
                             ['构建配置', '🔴 高 — 7+ 配置文件，版本冲突常见', '🟡 中 — 4+ 配置文件，仍有复杂度', '🟢 零 — 内置 SWC，一条命令'],
-                            ['组件导入', '🟡 中 — 多包导入，样式方案绑定', '🟡 中 — 需要 CSS 文件 + 全局注册', '🟢 一 — 单路径 28 组件，样式内联注入'],
+                            ['组件导入', '🟡 中 — 多包导入，样式方案绑定', '🟡 中 — 需要 CSS 文件 + 全局注册', '🟢 一 — 单路径统一导入，样式内联注入'],
                             ['API 扁平度', '低 — hooks 规则多，心智模型复杂', '🟡 中 — 模板+脚本分离', '🟢 高 — 3 个原语 + h()'],
                             ['运行时错误', '常见 — stale closure, 无限重渲染', '偶尔 — .value 遗漏, 响应式丢失', '极少 — 显式读写，无魔法'],
                         ].map(function(row, i) {

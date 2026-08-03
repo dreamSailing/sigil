@@ -277,6 +277,84 @@ declare global {
     function onUnmount(fn: () => void): void;
 }
 
+declare module '/@runtime' {
+    export const signal: typeof globalThis.signal;
+    export const computed: typeof globalThis.computed;
+    export const effect: typeof globalThis.effect;
+    export const defineComponent: typeof globalThis.defineComponent;
+    export const h: typeof globalThis.h;
+    export const Fragment: typeof globalThis.Fragment;
+    export const reactiveTemplate: typeof globalThis.reactiveTemplate;
+    export const errorBoundary: typeof globalThis.errorBoundary;
+    export const createRouter: typeof globalThis.createRouter;
+    export const Link: typeof globalThis.Link;
+    export const Navigate: typeof globalThis.Navigate;
+    export const useParams: typeof globalThis.useParams;
+    export const useQuery: typeof globalThis.useQuery;
+    export const createI18n: typeof globalThis.createI18n;
+    export const useTranslation: typeof globalThis.useTranslation;
+    export const Translate: typeof globalThis.Translate;
+    export const createStyleSheet: typeof globalThis.createStyleSheet;
+    export const withScope: typeof globalThis.withScope;
+    export const cssScoped: typeof globalThis.cssScoped;
+    export const keyframes: typeof globalThis.keyframes;
+    export const onMount: typeof globalThis.onMount;
+    export const onUnmount: typeof globalThis.onUnmount;
+
+    /**
+     * Beta API: batching semantics may still evolve.
+     */
+    export function batch<T>(fn: () => T): T;
+
+    /**
+     * Compatibility API: prefer `effect(() => source.get())` for new Sigil code.
+     */
+    export function watch(source: any, callback?: (value: any, oldValue: any) => void, options?: { immediate?: boolean }): () => void;
+
+    /**
+     * Compatibility API: prefer `effect()` for new Sigil code.
+     */
+    export function watchEffect(fn: () => void, options?: Record<string, never>): () => void;
+
+    /**
+     * Compatibility API: prefer `signal()` for new Sigil code.
+     */
+    export function ref<T>(value: T): { value: T; _isRef: true };
+    export function unref<T>(value: T | { value: T; _isRef: true }): T;
+    export function toRef<T extends object, K extends keyof T>(obj: T, key: K): { value: T[K]; _isRef: true };
+    export function toRefs<T extends object>(obj: T): { [K in keyof T]: { value: T[K]; _isRef: true } };
+    export function memo<T>(fn: () => T): () => T;
+
+    /**
+     * Experimental utilities: stable for internal use, but not yet covered by long-term compatibility guarantees.
+     */
+    export function debounce<T extends (...args: any[]) => any>(fn: T, delay?: number, immediate?: boolean): T;
+    export function throttle<T extends (...args: any[]) => any>(fn: T, delay?: number): T;
+    export function deepClone<T>(value: T): T;
+    export function deepEqual(a: unknown, b: unknown): boolean;
+    export function nextTick(fn?: () => void): Promise<void>;
+    export function clamp(value: number, min: number, max: number): number;
+    export function range(start: number, end?: number, step?: number): number[];
+    export function uniqueId(prefix?: string): string;
+    export function createEventEmitter(): {
+        on(event: string, fn: (...args: any[]) => void): any;
+        off(event: string, fn?: (...args: any[]) => void): any;
+        emit(event: string, ...args: any[]): any;
+        once(event: string, fn: (...args: any[]) => void): any;
+    };
+    export function createValidator(rules?: Record<string, Array<{ validate(value: any, data: Record<string, any>): string | null }>>): {
+        validate(data: Record<string, any>): { isValid: boolean; errors: Record<string, string> };
+        addRule(field: string, rule: { validate(value: any, data: Record<string, any>): string | null }): any;
+    };
+    export const validators: {
+        required(message?: string): { validate(value: any): string | null };
+        minLength(min: number, message?: string): { validate(value: string): string | null };
+        maxLength(max: number, message?: string): { validate(value: string): string | null };
+        pattern(regex: RegExp, message?: string): { validate(value: string): string | null };
+        email(message?: string): { validate(value: string): string | null };
+    };
+}
+
 // SigUI Components
 declare module '/@ui' {
     export interface ButtonProps {
@@ -608,12 +686,14 @@ declare module '/@ui' {
 
     export interface TreeNode {
         id: string;
+        key?: string;
         label: string;
+        icon?: string;
         children?: TreeNode[];
-        expanded?: boolean;
     }
     export interface TreeProps {
         nodes?: TreeNode[];
+        defaultExpandedKeys?: string[];
         onSelect?: (node: TreeNode) => void;
         style?: string | Record<string, string>;
     }

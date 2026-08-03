@@ -5,7 +5,7 @@
 // node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs runtime/runtime.test.js
 
 import { signal, computed, effect, h, Fragment, reactiveTemplate, errorBoundary, defineComponent, onMount, onUnmount } from './runtime.js';
-import { Button, Card, Input, Badge, Avatar, Stack, Flex, Heading, Text, Divider, Stat, Rating } from './ui-testable.js';
+import { Button, Card, Input, Badge, Avatar, Stack, Flex, Heading, Text, Divider, Stat, Rating, Tree } from './ui-testable.js';
 
 function test_signal_get_set() {
     const s = signal(0);
@@ -160,6 +160,7 @@ function test_error_boundary_catches() {
     const el = Safe();
     if (el.tagName !== 'DIV') throw new Error('error boundary should render a div');
     if (!el.textContent.includes('Error')) throw new Error('should show error message');
+    if (el.getAttribute('data-sigil-error-code') !== 'SIG-RUNTIME-BOUNDARY-CAUGHT') throw new Error('error boundary should expose structured error code');
 }
 
 function test_error_boundary_passes_through() {
@@ -319,6 +320,17 @@ function test_rating_creates_stars() {
     if (rating.childNodes.length !== 5) throw new Error('Rating should render 5 stars, got ' + rating.childNodes.length);
 }
 
+function test_tree_uses_id_and_calls_on_select() {
+    let selected = null;
+    const tree = Tree({
+        nodes: [{ id: 'root', label: 'Root', children: [{ id: 'child', label: 'Child' }] }],
+        onSelect(node) { selected = node.id; }
+    });
+    const clickable = tree.childNodes[0].childNodes[0];
+    clickable._eventListeners[0].handler({ currentTarget: clickable, target: clickable });
+    if (selected !== 'root') throw new Error('Tree should call onSelect with id-backed node');
+}
+
 const tests = [
     test_signal_get_set, test_signal_notifies_subscribers, test_signal_only_notifies_on_change,
     test_computed_derives_value, test_computed_is_readonly, test_computed_chained,
@@ -342,6 +354,7 @@ const tests = [
     test_flex_creates_element,
     test_stack_creates_element,
     test_rating_creates_stars,
+    test_tree_uses_id_and_calls_on_select,
 ];
 
 let passed = 0, failed = 0;

@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 import { FeatureCard, CodeBlock } from '../components/Widgets.tsx';
+import { SIGIL_UI_COMPONENT_COUNT, SIGIL_VERSION } from '../generated/contracts.ts';
 
 const features = [
     { icon: '⚡', title: '极速编译', description: '基于 SWC 的 TSX 编译，毫秒级转换，支持完整的 TypeScript 语法。' },
     { icon: '🔄', title: '信号响应式', description: '显式 signal/computed/effect 系统，精确追踪依赖，无虚拟 DOM 开销。' },
-    { icon: '🧩', title: '组件库', description: '28+ 内置 UI 组件，零 CSS 依赖，纯内联样式，开箱即用。' },
+    { icon: '🧩', title: '组件库', description: SIGIL_UI_COMPONENT_COUNT + ' 个内置 UI 组件，零 CSS 依赖，纯内联样式，开箱即用。' },
     { icon: '🤖', title: 'Agent 友好', description: '为 AI Agent 设计的开发体验，最小化认知负担，直白的 API。' },
     { icon: '🔥', title: '热重载', description: '文件监听 + SSE 推送，代码改动即时刷新，无需手动操作。' },
     { icon: '📦', title: '生产构建', description: '一键生成静态文件，自动剥离开发脚本，优化输出。' },
@@ -18,7 +19,7 @@ export const HomePage = defineComponent(() => {
         h('div', { style: 'text-align: center; padding: 80px 32px 48px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white;' },
             h('div', { style: 'display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); border-radius: 20px; font-size: 13px; color: #93c5fd; margin-bottom: 24px;' },
                 h('span', {}, '🎉'),
-                ' v0.1.0 正式发布'
+                ' v' + SIGIL_VERSION + ' 正式发布'
             ),
             h('h1', { style: 'font-size: 48px; font-weight: 800; margin: 0 0 16px 0; letter-spacing: -0.02em;' }, 'Sigil'),
             h('p', { style: 'font-size: 20px; color: #94a3b8; max-width: 640px; margin: 0 auto 32px; line-height: 1.6;' },

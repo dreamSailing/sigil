@@ -44,7 +44,7 @@ Feature suggestions should include:
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make your changes
 4. Add tests for new functionality
-5. Ensure all tests pass: `cargo test`
+5. Ensure all tests pass: `cargo test && npm run ci`
 6. Commit with clear messages: `feat: add router system`
 7. Push to your fork and submit a PR
 
@@ -95,7 +95,13 @@ cargo test
 
 **JavaScript runtime tests**:
 ```bash
-node --import ./runtime/setup-globals.js runtime/runtime.test.js
+npm test
+```
+
+**Contract/docs validation + browser smoke**:
+```bash
+npm run test:contracts
+npm run test:smoke
 ```
 
 ### Project Structure
@@ -126,12 +132,27 @@ sigil/
 2. **Reactivity**: Signals track subscribers during effect execution, enabling automatic dependency tracking
 3. **DOM Diffing**: Keyed reconciliation uses LIS (Longest Increasing Subsequence) algorithm for minimal moves
 4. **UI Components**: Headless design with inline styles, zero external CSS dependencies
+5. **Public contract registry**: `metadata/contracts.json` is the single source of truth for public runtime/UI exports
 
 ## Adding UI Components
 
 When adding new UI components:
 
-1. **Add to `runtime/ui.js`**:
+1. **Update `metadata/contracts.json`**:
+```json
+{
+  "name": "MyComponent",
+  "category": "advanced",
+  "stability": "experimental"
+}
+```
+
+2. **Regenerate derived files**:
+```bash
+node ./scripts/generate-contracts.mjs
+```
+
+3. **Add to `runtime/ui.js`**:
 ```javascript
 export function MyComponent(props, ...children) {
     const p = props || {};
@@ -139,15 +160,7 @@ export function MyComponent(props, ...children) {
 }
 ```
 
-2. **Add to `ALL_UI_COMPONENTS` in `src/compiler.rs`**:
-```rust
-const ALL_UI_COMPONENTS: &[&str] = &[
-    // ... existing components ...
-    "MyComponent",
-];
-```
-
-3. **Add TypeScript types to `runtime/types.d.ts`**:
+4. **Add TypeScript types to `runtime/types.d.ts`**:
 ```typescript
 export interface MyComponentProps {
     variant?: 'primary' | 'secondary';
@@ -156,7 +169,7 @@ export interface MyComponentProps {
 export function MyComponent(props: MyComponentProps, ...children: any[]): HTMLElement;
 ```
 
-4. **Add tests to `runtime/runtime.test.js`**:
+5. **Add tests to `runtime/runtime.test.js`**:
 ```javascript
 function test_my_component() {
     const el = MyComponent({ variant: 'primary' }, 'Content');
@@ -170,7 +183,8 @@ function test_my_component() {
 
 1. Export from `runtime/runtime.js`
 2. Add type declaration to `runtime/types.d.ts`
-3. Update import injection in `src/compiler.ts` (line with `import { signal, computed, ...`)
+3. Update `metadata/contracts.json`
+4. Regenerate with `node ./scripts/generate-contracts.mjs`
 
 ### Modifying the Compiler
 

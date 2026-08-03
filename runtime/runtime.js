@@ -92,7 +92,12 @@ export function onMount(fn) {
     if (currentComponent) {
         currentComponent.onMountCallbacks.push(fn);
     } else if (DEV_MODE) {
-        devWarn('onMount called outside of component');
+        devWarn({
+            code: 'SIG-RUNTIME-LIFECYCLE-OUTSIDE-COMPONENT',
+            message: 'onMount called outside of defineComponent.',
+            likelyCause: 'Lifecycle hooks were called at module scope or inside a plain helper function.',
+            suggestedFix: 'Call onMount only inside the factory passed to defineComponent.',
+        });
     }
 }
 
@@ -100,16 +105,41 @@ export function onUnmount(fn) {
     if (currentComponent) {
         currentComponent.onUnmountCallbacks.push(fn);
     } else if (DEV_MODE) {
-        devWarn('onUnmount called outside of component');
+        devWarn({
+            code: 'SIG-RUNTIME-LIFECYCLE-OUTSIDE-COMPONENT',
+            message: 'onUnmount called outside of defineComponent.',
+            likelyCause: 'Lifecycle hooks were called at module scope or inside a plain helper function.',
+            suggestedFix: 'Call onUnmount only inside the factory passed to defineComponent.',
+        });
     }
 }
 
 // --- Dev mode detection ---
 const DEV_MODE = typeof window !== 'undefined' && (window.SIGIL_DEV === true || !window.SIGIL_PROD);
 
-function devWarn(msg) {
+function normalizeRuntimeDiagnostic(input) {
+    if (typeof input === 'string') {
+        return {
+            code: 'SIG-RUNTIME-UNKNOWN',
+            message: input,
+        };
+    }
+    return input;
+}
+
+function createRuntimeError(code, message, likelyCause, suggestedFix, details) {
+    const error = new Error(message);
+    error.name = 'SigilRuntimeError';
+    error.code = code;
+    error.likelyCause = likelyCause;
+    error.suggestedFix = suggestedFix;
+    if (details) error.details = details;
+    return error;
+}
+
+function devWarn(input) {
     if (DEV_MODE) {
-        console.warn('[Sigil]', msg);
+        console.warn('[Sigil]', normalizeRuntimeDiagnostic(input));
     }
 }
 
@@ -179,9 +209,19 @@ export function computed(getter) {
         get: () => result.get(),
         _isComputed: true,
         set: () => {
-            devWarn('Attempting to set a computed signal — computed values are read-only. Use a regular signal instead.');
+            devWarn({
+                code: 'SIG-RUNTIME-COMPUTED-READONLY',
+                message: 'Attempting to set a computed signal.',
+                likelyCause: 'A derived value was treated as mutable state.',
+                suggestedFix: 'Update the source signal instead, or replace computed() with signal() if mutation is required.',
+            });
             if (DEV_MODE) {
-                throw new Error('[Sigil] Computed signals are read-only');
+                throw createRuntimeError(
+                    'SIG-RUNTIME-COMPUTED-READONLY',
+                    'Computed signals are read-only.',
+                    'A computed() result was mutated with .set().',
+                    'Write to the underlying signal or convert the value to a regular signal().',
+                );
             }
         }
     };
@@ -275,7 +315,12 @@ export function watch(source, callback, options) {
     } else if (typeof source === 'function') {
         getter = source;
     } else {
-        devWarn('Invalid watch source');
+        devWarn({
+            code: 'SIG-RUNTIME-WATCH-INVALID-SOURCE',
+            message: 'watch() received an invalid source.',
+            likelyCause: 'watch() expects a signal-like object, a getter function, or an array of those values.',
+            suggestedFix: 'Pass a signal, a getter, or use effect() for new Sigil code.',
+        });
         return function() {};
     }
 
@@ -860,10 +905,22 @@ export function errorBoundary(fn) {
         try {
             return fn(...args);
         } catch (e) {
-            console.error('[Sigil] Error boundary caught:', e);
+            const runtimeError = e && e.code ? e : createRuntimeError(
+                'SIG-RUNTIME-BOUNDARY-CAUGHT',
+                e && e.message ? e.message : String(e),
+                'A render path, event, or child component threw during boundary execution.',
+                'Inspect the boundary diagnostics and fix the throwing component before retrying.',
+            );
+            console.error('[Sigil]', {
+                code: runtimeError.code,
+                message: runtimeError.message,
+                likelyCause: runtimeError.likelyCause,
+                suggestedFix: runtimeError.suggestedFix,
+            });
             const el = document.createElement('div');
             el.style.cssText = 'padding: 20px; background: #fee2e2; border: 1px solid #ef4444; border-radius: 8px; color: #991b1b; font-family: monospace;';
-            el.textContent = 'Error: ' + (e.message || String(e));
+            el.setAttribute('data-sigil-error-code', runtimeError.code || 'SIG-RUNTIME-BOUNDARY-CAUGHT');
+            el.textContent = 'Error [' + (runtimeError.code || 'SIG-RUNTIME-BOUNDARY-CAUGHT') + ']: ' + runtimeError.message;
             return el;
         }
     };

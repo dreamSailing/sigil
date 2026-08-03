@@ -1,6 +1,8 @@
 // Copyright (c) 2026 DreamSailing
 // SPDX-License-Identifier: MIT
 
+import { SIGIL_VERSION } from '../generated/contracts.ts';
+
 const navItems = [
     { id: 'home', label: '首页', icon: '🏠' },
     { id: 'guide', label: '快速开始', icon: '' },
@@ -19,7 +21,7 @@ export function Sidebar(props) {
     return h('nav', { style: 'width: 240px; min-height: 100vh; background: #0f172a; padding: 24px 0; position: fixed; left: 0; top: 0; overflow-y: auto;' },
         h('div', { style: 'padding: 0 24px 24px; border-bottom: 1px solid #1e293b;' },
             h('div', { style: 'font-size: 20px; font-weight: 700; color: #f8fafc;' }, '⚡ Sigil'),
-            h('div', { style: 'font-size: 12px; color: #64748b; margin-top: 4px;' }, 'Framework v0.1.0')
+            h('div', { style: 'font-size: 12px; color: #64748b; margin-top: 4px;' }, 'Framework v' + SIGIL_VERSION)
         ),
         h('div', { style: 'padding: 16px 0;' },
             ...navItems.map(function(item) {
@@ -48,7 +50,7 @@ export function TopBar(props) {
         h('div', { style: 'font-size: 16px; font-weight: 600; color: #111827;' }, p.title || ''),
         h('div', { style: 'display: flex; gap: 12px;' },
             h('a', { href: 'https://github.com/DreamSailing/sigil', target: '_blank', style: 'padding: 6px 12px; font-size: 13px; color: #6b7280; text-decoration: none; border: 1px solid #e5e7eb; border-radius: 6px;' }, 'GitHub'),
-            h('span', { style: 'padding: 6px 12px; font-size: 13px; color: #3b82f6; background: #eff6ff; border-radius: 6px; font-weight: 500;' }, 'v0.1.0')
+            h('span', { style: 'padding: 6px 12px; font-size: 13px; color: #3b82f6; background: #eff6ff; border-radius: 6px; font-weight: 500;' }, 'v' + SIGIL_VERSION)
         )
     );
 }

@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tower_http::compression::CompressionLayer;
 use crate::compiler;
+use crate::assets;
+use crate::errors::{json_error, SigilError};
 
 /// MIME type mapping for static file serving
 fn mime_type_guess(path: &std::path::Path) -> &'static str {
@@ -37,6 +39,28 @@ fn mime_type_guess(path: &std::path::Path) -> &'static str {
     }
 }
 
+fn resolve_source_module(src_root: &PathBuf, file: &str) -> std::io::Result<PathBuf> {
+    let base = src_root.join(file);
+    let candidates = [
+        base.clone(),
+        base.with_extension("tsx"),
+        base.with_extension("ts"),
+        base.with_extension("jsx"),
+        base.with_extension("js"),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!("Source module '{}' was not found.", file),
+    ))
+}
+
 /// Cached compilation result
 #[derive(Clone)]
 struct CacheEntry {
@@ -47,27 +71,6 @@ struct CacheEntry {
 pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
     let src_dir = root_dir.join("src");
     
-    // Locate runtime files relative to the binary
-    // Binary is at target/release/sig, runtime is at project_root/runtime/
-    let project_root = std::env::current_exe()
-        .ok()
-        .and_then(|p| {
-            let target = p.parent()?.parent()?.parent()?;
-            Some(target.to_path_buf())
-        });
-    
-    let runtime_path = project_root
-        .as_ref()
-        .map(|p| p.join("runtime/runtime.js"))
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/runtime.js"));
-    
-    let ui_path = project_root
-        .as_ref()
-        .map(|p| p.join("runtime/ui.js"))
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/ui.js"));
-
     // File watcher broadcast channel
     let (reload_tx, _) = broadcast::channel::<()>(16);
     let reload_tx = Arc::new(reload_tx);
@@ -175,43 +178,74 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
         let canonical_src = canonical_src_dir_clone.clone();
         let c = cache_clone2.clone();
         async move {
-            let full_path = canonical_src.join(&file);
+            let full_path = match resolve_source_module(&canonical_src, &file) {
+                Ok(path) => path,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return json_error(
+                        StatusCode::NOT_FOUND,
+                        SigilError::new(
+                            "SIG-SERVER-SRC-NOT-FOUND",
+                            format!("Source module '{}' was not found.", file),
+                            "The requested TSX module does not exist under src/.",
+                            "Create the file under src/ or update the import path to a real module.",
+                        ),
+                    );
+                }
+                Err(e) => {
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        SigilError::new(
+                            "SIG-SERVER-PATH-RESOLVE-FAILED",
+                            format!("Failed to resolve source module '{}'.", file),
+                            "The dev server could not determine which source file to compile.",
+                            "Check file permissions and ensure the project src/ directory is accessible.",
+                        )
+                        .with_details(serde_json::json!({ "cause": e.to_string() })),
+                    );
+                }
+            };
 
             // Security: Prevent path traversal attacks
             // Canonicalize path and verify the result is within src_dir
             let canonical_path = match full_path.canonicalize() {
                 Ok(p) => p,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .header(header::CONTENT_TYPE, "text/plain")
-                        .body(Body::from("File not found"))
-                        .expect("response build failed");
-                }
                 Err(_) => {
-                    return Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .header(header::CONTENT_TYPE, "text/plain")
-                        .body(Body::from("Server configuration error"))
-                        .expect("response build failed");
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        SigilError::new(
+                            "SIG-SERVER-PATH-RESOLVE-FAILED",
+                            format!("Failed to resolve source module '{}'.", file),
+                            "The dev server could not canonicalize the requested path.",
+                            "Check file permissions and ensure the project src/ directory is accessible.",
+                        ),
+                    );
                 }
             };
             if !canonical_path.starts_with(&*canonical_src) {
-                return Response::builder()
-                    .status(StatusCode::FORBIDDEN)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .body(Body::from("Access denied"))
-                    .expect("response build failed");
+                return json_error(
+                    StatusCode::FORBIDDEN,
+                    SigilError::new(
+                        "SIG-SERVER-PATH-FORBIDDEN",
+                        format!("Access to '{}' is outside the src/ root.", file),
+                        "A request attempted to traverse outside the project source directory.",
+                        "Only import modules that live inside src/ and use relative imports from that root.",
+                    ),
+                );
             }
 
             let source = match std::fs::read_to_string(&canonical_path) {
                 Ok(s) => s,
                 Err(e) => {
-                    return Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .header(header::CONTENT_TYPE, "text/plain")
-                        .body(Body::from(format!("Read error: {}", e)))
-                        .expect("response build failed");
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        SigilError::new(
+                            "SIG-SERVER-SRC-READ-FAILED",
+                            format!("Failed to read '{}'.", file),
+                            "The source module exists but could not be read from disk.",
+                            "Check file permissions and confirm the file is valid UTF-8.",
+                        )
+                        .with_details(serde_json::json!({ "cause": e.to_string() })),
+                    );
                 }
             };
 
@@ -256,55 +290,80 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                         .body(Body::from(compiled.js))
                         .expect("response build failed")
                 }
-                Ok(Err(e)) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .header(header::CACHE_CONTROL, "no-cache")
-                    .body(Body::from(format!("Compile Error: {}", e)))
-                    .expect("response build failed"),
-                Err(e) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .body(Body::from(format!("Task Error: {}", e)))
-                    .expect("response build failed"),
+                Ok(Err(e)) => {
+                    let diagnostics = compiler::extract_compile_diagnostics(&e).unwrap_or_default();
+                    let mut error = SigilError::new(
+                        "SIG-COMPILE-FAILED",
+                        format!("TSX compilation failed for '{}'.", file),
+                        "The module contains invalid TSX syntax, an unsupported construct, or an inconsistent import.",
+                        "Fix the first diagnostic location, then re-run the dev server request.",
+                    )
+                    .with_details(serde_json::json!({ "diagnostics": diagnostics }));
+
+                    if let Some(primary) = compiler::extract_compile_diagnostics(&e)
+                        .and_then(|items| items.into_iter().find_map(|item| item.location.map(|location| (location, item.message))))
+                    {
+                        error = error.with_location(primary.0.file, primary.0.line, primary.0.column);
+                    }
+
+                    json_error(StatusCode::BAD_REQUEST, error)
+                }
+                Err(e) => json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    SigilError::new(
+                        "SIG-SERVER-COMPILE-TASK-FAILED",
+                        format!("Background compile task crashed for '{}'.", file),
+                        "The Rust worker panicked or could not return the compile result.",
+                        "Inspect the server logs and retry after fixing the reported worker error.",
+                    )
+                    .with_details(serde_json::json!({ "cause": e.to_string() })),
+                ),
             }
         }
     });
 
     // Serve runtime file
     let runtime_route = get(move || {
-        let path = runtime_path.clone();
         async move {
-            match std::fs::read_to_string(path) {
+            match assets::read_runtime_asset("runtime.js") {
                 Ok(code) => Response::builder()
                     .header(header::CONTENT_TYPE, "application/javascript")
                     .header(header::CACHE_CONTROL, "no-cache")
                     .body(Body::from(code))
                     .expect("response build failed"),
-                Err(e) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .body(Body::from(format!("Runtime not found: {}", e)))
-                    .expect("response build failed"),
+                Err(e) => json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    SigilError::new(
+                        "SIG-SERVER-RUNTIME-ASSET-MISSING",
+                        "Failed to load embedded runtime asset.",
+                        "The runtime asset was missing from disk and the embedded fallback could not be loaded.",
+                        "Reinstall the CLI or rebuild Sigil so runtime assets are embedded correctly.",
+                    )
+                    .with_details(serde_json::json!({ "cause": e.to_string() })),
+                ),
             }
         }
     });
 
     // Serve UI file
     let ui_route = get(move || {
-        let path = ui_path.clone();
         async move {
-            match std::fs::read_to_string(path) {
+            match assets::read_runtime_asset("ui.js") {
                 Ok(code) => Response::builder()
                     .header(header::CONTENT_TYPE, "application/javascript")
                     .header(header::CACHE_CONTROL, "no-cache")
                     .body(Body::from(code))
                     .expect("response build failed"),
-                Err(e) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(header::CONTENT_TYPE, "text/plain")
-                    .body(Body::from(format!("UI library not found: {}", e)))
-                    .expect("response build failed"),
+                Err(e) => json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    SigilError::new(
+                        "SIG-SERVER-UI-ASSET-MISSING",
+                        "Failed to load embedded UI asset.",
+                        "The UI asset was missing from disk and the embedded fallback could not be loaded.",
+                        "Reinstall the CLI or rebuild Sigil so UI assets are embedded correctly.",
+                    )
+                    .with_details(serde_json::json!({ "cause": e.to_string() })),
+                ),
             }
         }
     });
@@ -328,11 +387,16 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                             .header(header::CACHE_CONTROL, "no-cache")
                             .body(Body::from(content))
                             .expect("response build failed"),
-                        Err(e) => Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .header(header::CONTENT_TYPE, "text/plain")
-                            .body(Body::from(format!("Not found: {}", e)))
-                            .expect("response build failed"),
+                        Err(e) => json_error(
+                            StatusCode::NOT_FOUND,
+                            SigilError::new(
+                                "SIG-SERVER-ENTRY-NOT-FOUND",
+                                "Project entry file index.html was not found.",
+                                "The dev server expects index.html at the project root.",
+                                "Add index.html to the project root or scaffold a new project with `sig new`.",
+                            )
+                            .with_details(serde_json::json!({ "cause": e.to_string() })),
+                        ),
                     }
                 } else {
                     let full_path = root.join(path);
@@ -340,19 +404,27 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                     let canonical_path = match full_path.canonicalize() {
                         Ok(p) => p,
                         Err(_) => {
-                            return Response::builder()
-                                .status(StatusCode::NOT_FOUND)
-                                .header(header::CONTENT_TYPE, "text/plain")
-                                .body(Body::from("Not found"))
-                                .expect("response build failed");
+                            return json_error(
+                                StatusCode::NOT_FOUND,
+                                SigilError::new(
+                                    "SIG-SERVER-STATIC-NOT-FOUND",
+                                    format!("Static asset '{}' was not found.", path),
+                                    "The requested file does not exist under the project root.",
+                                    "Create the asset under the project root or fix the asset URL.",
+                                ),
+                            );
                         }
                     };
                     if !canonical_path.starts_with(&*canonical_root) {
-                        return Response::builder()
-                            .status(StatusCode::FORBIDDEN)
-                            .header(header::CONTENT_TYPE, "text/plain")
-                            .body(Body::from("Access denied"))
-                            .expect("response build failed");
+                        return json_error(
+                            StatusCode::FORBIDDEN,
+                            SigilError::new(
+                                "SIG-SERVER-STATIC-FORBIDDEN",
+                                format!("Access to '{}' is outside the project root.", path),
+                                "A request attempted to traverse outside the project root.",
+                                "Reference only assets inside the project root or public/ directory.",
+                            ),
+                        );
                     }
                     if canonical_path.is_file() {
                         let content_type = mime_type_guess(&full_path);
@@ -362,18 +434,27 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
                                 .header(header::CACHE_CONTROL, "no-cache")
                                 .body(Body::from(data))
                                 .expect("response build failed"),
-                            Err(e) => Response::builder()
-                                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                                .header(header::CONTENT_TYPE, "text/plain")
-                                .body(Body::from(format!("Read error: {}", e)))
-                                .expect("response build failed"),
+                            Err(e) => json_error(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                SigilError::new(
+                                    "SIG-SERVER-STATIC-READ-FAILED",
+                                    format!("Failed to read static asset '{}'.", path),
+                                    "The asset exists but could not be read from disk.",
+                                    "Check file permissions and confirm the asset is accessible.",
+                                )
+                                .with_details(serde_json::json!({ "cause": e.to_string() })),
+                            ),
                         }
                     } else {
-                        Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .header(header::CONTENT_TYPE, "text/plain")
-                            .body(Body::from("Not found"))
-                            .expect("response build failed")
+                        json_error(
+                            StatusCode::NOT_FOUND,
+                            SigilError::new(
+                                "SIG-SERVER-STATIC-NOT-FOUND",
+                                format!("Static asset '{}' was not found.", path),
+                                "The requested path resolved, but it is not a file.",
+                                "Point the browser to an existing file or ensure the build emitted the asset.",
+                            ),
+                        )
                     }
                 }
             }

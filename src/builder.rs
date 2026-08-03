@@ -5,6 +5,7 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
+use crate::assets;
 use crate::compiler;
 
 pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
@@ -93,28 +94,7 @@ pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
     let runtime_dir = output_dir.join("runtime");
     fs::create_dir_all(&runtime_dir)?;
 
-    // Locate runtime files relative to the binary
-    let project_root = std::env::current_exe()
-        .ok()
-        .and_then(|p| {
-            let target = p.parent()?.parent()?.parent()?;
-            Some(target.to_path_buf())
-        });
-    
-    let runtime_src = project_root
-        .as_ref()
-        .map(|p| p.join("runtime/runtime.js"))
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/runtime.js"));
-    
-    let ui_src = project_root
-        .as_ref()
-        .map(|p| p.join("runtime/ui.js"))
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("runtime/ui.js"));
-
-    if runtime_src.exists() {
-        let content = fs::read_to_string(&runtime_src)?;
+    if let Ok(content) = assets::read_runtime_asset("runtime.js") {
         let minified = minify_js(&content);
         total_original += content.len();
         total_minified += minified.len();
@@ -122,8 +102,7 @@ pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
         println!("✅ Wrote runtime/runtime.js ({} → {})",
             format_size(content.len()), format_size(minified.len()));
     }
-    if ui_src.exists() {
-        let content = fs::read_to_string(&ui_src)?;
+    if let Ok(content) = assets::read_runtime_asset("ui.js") {
         let minified = minify_js(&content);
         total_original += content.len();
         total_minified += minified.len();

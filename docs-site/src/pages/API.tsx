@@ -2,12 +2,27 @@
 // SPDX-License-Identifier: MIT
 
 import { ApiTable, CodeBlock } from '../components/Widgets.tsx';
+import { SIGIL_RUNTIME_STABLE, SIGIL_RUNTIME_BETA, SIGIL_RUNTIME_COMPAT, SIGIL_RUNTIME_EXPERIMENTAL } from '../generated/contracts.ts';
 
 export const ApiPage = defineComponent(() => {
     return () => h('div', { style: 'max-width: 800px; padding: 32px 0;' },
         h('h1', { style: 'font-size: 32px; font-weight: 700; color: #111827; margin: 0 0 8px 0;' }, '📖 API 参考'),
         h('p', { style: 'font-size: 16px; color: #6b7280; margin: 0 0 48px 0; line-height: 1.6;' },
             'Sigil 框架完整 API 文档'
+        ),
+        h('div', { style: 'margin-bottom: 48px; padding: 20px 24px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;' },
+            h('h2', { style: 'font-size: 18px; font-weight: 600; color: #1e3a8a; margin: 0 0 12px 0;' }, 'API 稳定级别'),
+            h('p', { style: 'font-size: 14px; color: #1d4ed8; margin: 0 0 16px 0; line-height: 1.7;' },
+                'Sigil 现在明确区分 stable、beta、compat、experimental。AI 默认应优先使用 stable，beta 需要局部验证，compat 仅用于迁移或适配已有心智模型，experimental 不应成为生成代码的默认路径。'
+            ),
+            h('div', { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px;' },
+                h(ApiTable, { items: SIGIL_RUNTIME_STABLE.map(function(item) { return { name: item.name, type: item.category, description: item.description }; }) }),
+                h(ApiTable, { items: SIGIL_RUNTIME_BETA.map(function(item) { return { name: item.name, type: item.category, description: item.description }; }) })
+            ),
+            h('div', { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px;' },
+                h(ApiTable, { items: SIGIL_RUNTIME_COMPAT.map(function(item) { return { name: item.name, type: item.category, description: item.description }; }) }),
+                h(ApiTable, { items: SIGIL_RUNTIME_EXPERIMENTAL.map(function(item) { return { name: item.name, type: item.category, description: item.description }; }) })
+            )
         ),
 
         // signal

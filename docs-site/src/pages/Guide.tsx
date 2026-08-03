@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { CodeBlock, FeatureCard } from '../components/Widgets.tsx';
+import { QUICKSTART_COUNTER_EXAMPLE } from '../generated/examples.ts';
 
 export const GuidePage = defineComponent(() => {
     return () => h('div', { style: 'max-width: 800px; padding: 32px 0;' },
@@ -20,9 +21,9 @@ export const GuidePage = defineComponent(() => {
 
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 32px 0 16px 0;' }, '2. 创建项目'),
             h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 12px 0;' },
-                '创建项目目录并编写你的第一个组件：'
+                '使用内置脚手架创建项目：'
             ),
-            h(CodeBlock, { lang: 'bash', code: 'mkdir my-app && cd my-app\nmkdir src' }),
+            h(CodeBlock, { lang: 'bash', code: 'sig new my-app\ncd my-app' }),
 
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 32px 0 16px 0;' }, '3. 编写代码'),
             h('p', { style: 'font-size: 15px; color: #4b5563; margin: 0 0 12px 0;' },
@@ -31,21 +32,7 @@ export const GuidePage = defineComponent(() => {
             h(CodeBlock, {
                 lang: 'tsx',
                 title: 'src/main.tsx',
-                code: [
-                    'import { signal, defineComponent, h } from "/@runtime"\n',
-                    'import { Button, Heading, Text, Stack } from "/@ui"\n\n',
-                    'const App = defineComponent(() => {\n',
-                    '  const count = signal(0)\n\n',
-                    '  return () => h("div", { style: "padding: 40px;" },\n',
-                    '    Heading({ level: "h1" }, "Hello Sigil!"),\n',
-                    '    Text({}, "Count: " + count.get()),\n',
-                    '    Button({ onClick: () => count.set(count.get() + 1) },\n',
-                    '      "Increment"\n',
-                    '    )\n',
-                    '  )\n',
-                    '})\n\n',
-                    'document.body.appendChild(App())'
-                ].join('')
+                code: QUICKSTART_COUNTER_EXAMPLE
             }),
 
             h('h2', { style: 'font-size: 22px; font-weight: 600; color: #111827; margin: 32px 0 16px 0;' }, '4. 启动'),
@@ -72,6 +59,8 @@ export const GuidePage = defineComponent(() => {
                 code: [
                     'my-app/',
                     '├── index.html          # HTML 入口（含热重载）',
+                    '├── sigil-env.d.ts      # CLI 生成的本地类型入口',
+                    '├── tsconfig.json       # 仅用于编辑器类型提示',
                     '└── src/',
                     '    ├── main.tsx         # 主入口文件',
                     '    ├── components/      # 组件目录',

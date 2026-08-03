@@ -5,7 +5,11 @@
   "repository": "https://github.com/DreamSailing/sigil",
   "private": true,
   "scripts": {
-    "test": "node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs ./runtime/runtime.test.js"
+    "test": "npm run test:runtime",
+    "test:runtime": "node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs ./runtime/runtime.test.js",
+    "test:contracts": "node ./scripts/generate-contracts.mjs --check && node ./scripts/validate-docs.mjs",
+    "test:smoke": "node ./scripts/smoke-docs.mjs",
+    "ci": "npm run test:runtime && npm run test:contracts && npm run test:smoke"
   },
   "dependencies": {
     "playwright": "^1.59.1"

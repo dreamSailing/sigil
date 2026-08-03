@@ -1,10 +1,12 @@
+
+// Mock UI components for testing - imports h from runtime module
 // Copyright (c) 2026 DreamSailing
 // SPDX-License-Identifier: MIT
 
 // Sigil UI Component Library — v0.1.0
 // Headless + inline styles, zero external dependencies
 
-import { h, signal, computed, effect, onMount, onUnmount, range } from '/@runtime';
+import { h, signal, computed, effect, onMount, onUnmount, range } from './runtime.js';
 
 // --- Theme ---
 const theme = {
@@ -1124,3 +1126,4 @@ export function Tree(props) {
         nodes.map(function(node) { return renderNode(node, 0); })
     );
 }
+
