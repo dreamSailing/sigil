@@ -75,7 +75,17 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
     // Compilation cache: path -> CacheEntry
     let cache: Arc<Mutex<HashMap<String, CacheEntry>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    // Canonicalize src_dir once at startup (H1 fix)
+    // Canonicalize project root and src_dir once at startup.
+    let canonical_root_dir = match root_dir.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("⚠️  Failed to canonicalize project root: {:?}", e);
+            eprintln!("   Static file path protection may not work correctly.");
+            root_dir.clone()
+        }
+    };
+    let canonical_root_dir = Arc::new(canonical_root_dir);
+
     let canonical_src_dir = match src_dir.canonicalize() {
         Ok(p) => p,
         Err(e) => {
@@ -160,14 +170,12 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
 
     // TSX compilation handler with cache
     let cache_clone2 = cache.clone();
-    let src_dir_clone = src_dir.clone();
     let canonical_src_dir_clone = canonical_src_dir.clone();
     let compile_route = get(move |Path(file): Path<String>| {
-        let src = src_dir_clone.clone();
         let canonical_src = canonical_src_dir_clone.clone();
         let c = cache_clone2.clone();
         async move {
-            let full_path = src.join(&file);
+            let full_path = canonical_src.join(&file);
 
             // Security: Prevent path traversal attacks
             // Canonicalize path and verify the result is within src_dir
@@ -233,8 +241,9 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
             // Compile
             let file_key = file.clone();
             let etag_key = etag.clone();
+            let module_path = file_key.clone();
             let result = tokio::task::spawn_blocking(move || {
-                compiler::transform_tsx(&source)
+                compiler::transform_tsx_at_path(&source, std::path::Path::new(&module_path))
             }).await;
 
             match result {
@@ -307,7 +316,7 @@ pub async fn start_server(port: u16, root_dir: PathBuf) -> Result<()> {
         .route("/src/*file", compile_route)
         .fallback_service(get(move |req: axum::http::Request<Body>| {
             let root = root_dir.clone();
-            let canonical_root = canonical_src_dir.clone();
+            let canonical_root = canonical_root_dir.clone();
             async move {
                 let path = req.uri().path().trim_start_matches('/');
                 if path.is_empty() {

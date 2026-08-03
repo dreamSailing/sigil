@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use anyhow::Result;
+use std::path::{Component, Path, PathBuf};
 use swc_core::common::{sync::Lrc, FileName, SourceMap, Mark, Globals, GLOBALS};
 use swc_core::common::errors::{Handler, Emitter, DiagnosticBuilder, HANDLER};
 use swc_core::ecma::ast::{Program, Callee, Expr, JSXElementName};
@@ -56,20 +57,31 @@ pub struct CompileResult {
     pub source_map: Option<String>,
 }
 
+#[allow(dead_code)]
 pub fn transform_tsx(source: &str) -> Result<CompileResult> {
-    transform_tsx_with_options(source, false)
+    transform_tsx_at_path(source, Path::new("main.tsx"))
 }
 
+pub fn transform_tsx_at_path(source: &str, module_path: &Path) -> Result<CompileResult> {
+    transform_tsx_with_options_at_path(source, module_path, false)
+}
+
+#[allow(dead_code)]
 pub fn transform_tsx_with_options(source: &str, minify: bool) -> Result<CompileResult> {
+    transform_tsx_with_options_at_path(source, Path::new("main.tsx"), minify)
+}
+
+pub fn transform_tsx_with_options_at_path(source: &str, module_path: &Path, minify: bool) -> Result<CompileResult> {
     let cm: Lrc<SourceMap> = Default::default();
     let globals = Globals::new();
     let error_capturer = ErrorCapturer::new(cm.clone());
     let error_buf = error_capturer.errors.clone();
     let handler = Handler::with_emitter(true, false, Box::new(error_capturer));
     let source = source.to_string();
+    let module_path = module_path.to_path_buf();
 
     GLOBALS.set(&globals, || {
-        HANDLER.set(&handler, || do_transform(&cm, &source, minify))
+        HANDLER.set(&handler, || do_transform(&cm, &source, &module_path, minify))
     })
     .and_then(|output| {
         let errors = error_buf.lock().unwrap();
@@ -81,7 +93,7 @@ pub fn transform_tsx_with_options(source: &str, minify: bool) -> Result<CompileR
     })
 }
 
-fn do_transform(cm: &Lrc<SourceMap>, source: &str, minify: bool) -> Result<CompileResult> {
+fn do_transform(cm: &Lrc<SourceMap>, source: &str, module_path: &Path, minify: bool) -> Result<CompileResult> {
     let fm = cm.new_source_file(FileName::Custom("input.tsx".into()), source.into());
 
     // 1. Parse TSX
@@ -136,7 +148,7 @@ fn do_transform(cm: &Lrc<SourceMap>, source: &str, minify: bool) -> Result<Compi
 
     // 7. Rewrite relative imports to /src/ paths
     let generated = String::from_utf8(buf)?;
-    let rewritten = rewrite_local_imports(&generated);
+    let rewritten = rewrite_local_imports(&generated, module_path);
 
     // 8. Build inline source map using SWC's generated mappings
     let source_map_json = build_source_map_with_mappings(source, source_map_buf);
@@ -149,7 +161,7 @@ fn do_transform(cm: &Lrc<SourceMap>, source: &str, minify: bool) -> Result<Compi
     };
 
     let mut final_code = format!(
-        "import {{ signal, computed, effect, h, defineComponent, reactiveTemplate, Fragment, errorBoundary, createRouter, Link, Navigate, useParams, useQuery, createI18n, useTranslation, Translate, createStyleSheet, withScope, cssScoped, keyframes, batch, watch, watchEffect, ref, unref, toRef, toRefs, memo, debounce, throttle, deepClone, deepEqual, nextTick, clamp, range, uniqueId, createEventEmitter, createValidator, validators }} from '/@runtime';\n{}{}",
+        "import {{ signal, computed, effect, h, defineComponent, reactiveTemplate, Fragment, errorBoundary, createRouter, Link, Navigate, useParams, useQuery, createI18n, useTranslation, Translate, createStyleSheet, withScope, cssScoped, keyframes, onMount, onUnmount, batch, watch, watchEffect, ref, unref, toRef, toRefs, memo, debounce, throttle, deepClone, deepEqual, nextTick, clamp, range, uniqueId, createEventEmitter, createValidator, validators }} from '/@runtime';\n{}{}",
         ui_import,
         rewritten
     );
@@ -210,36 +222,39 @@ impl Visit for UiComponentVisitor {
     }
 }
 
+fn normalize_module_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    normalized
+}
+
+fn resolve_src_import(module_path: &Path, import_path: &str) -> String {
+    let clean = import_path
+        .strip_suffix(".tsx")
+        .or_else(|| import_path.strip_suffix(".ts"))
+        .or_else(|| import_path.strip_suffix(".jsx"))
+        .or_else(|| import_path.strip_suffix(".js"))
+        .unwrap_or(import_path);
+    let base_dir = module_path.parent().unwrap_or_else(|| Path::new(""));
+    let normalized = normalize_module_path(&base_dir.join(clean));
+    let normalized = normalized.to_string_lossy().replace('\\', "/");
+    format!("/src/{}", normalized.trim_start_matches('/'))
+}
+
 /// Rewrite relative imports (./foo, ../foo) to /src/foo paths
-pub fn rewrite_local_imports(code: &str) -> String {
+pub fn rewrite_local_imports(code: &str, module_path: &Path) -> String {
     let re = regex::Regex::new(r#"from\s+['"](\.{1,2}/[^'"]+)['"]"#).unwrap();
     re.replace_all(code, |caps: &regex::Captures| {
         let raw_path = &caps[1];
-        // Strip extension if present
-        let clean = raw_path
-            .strip_suffix(".tsx")
-            .or_else(|| raw_path.strip_suffix(".ts"))
-            .or_else(|| raw_path.strip_suffix(".jsx"))
-            .or_else(|| raw_path.strip_suffix(".js"))
-            .unwrap_or(raw_path);
-
-        // Normalize path: properly handle ./ and ../ prefixes
-        // Preserve the actual path structure, just remove leading ./ or ../
-        let normalized = if clean.starts_with("../") {
-            // Strip all leading ../ prefixes but preserve the rest of the path
-            let mut path = clean;
-            while path.starts_with("../") {
-                path = &path[3..];
-            }
-            // path now contains the actual module path (e.g., "utils/helpers" from "../../utils/helpers")
-            path.to_string()
-        } else if let Some(stripped) = clean.strip_prefix("./") {
-            stripped.to_string()
-        } else {
-            clean.trim_start_matches("/").to_string()
-        };
-
-        format!("from '/src/{}'", normalized)
+        format!("from '{}'", resolve_src_import(module_path, raw_path))
     }).to_string()
 }
 
@@ -359,35 +374,68 @@ mod tests {
     fn test_rewrite_local_imports() {
         // Relative import with .tsx extension
         let input = r#"import { foo } from './utils.tsx'"#;
-        let output = rewrite_local_imports(input);
+        let output = rewrite_local_imports(input, Path::new("main.tsx"));
         assert_eq!(output, "import { foo } from '/src/utils'");
 
         // Relative import with .ts extension
         let input = r#"import { bar } from '../helpers.ts'"#;
-        let output = rewrite_local_imports(input);
+        let output = rewrite_local_imports(input, Path::new("pages/home.tsx"));
         assert_eq!(output, "import { bar } from '/src/helpers'");
 
         // Relative import without extension
         let input = r#"import { baz } from './module'"#;
-        let output = rewrite_local_imports(input);
-        assert_eq!(output, "import { baz } from '/src/module'");
+        let output = rewrite_local_imports(input, Path::new("features/page.tsx"));
+        assert_eq!(output, "import { baz } from '/src/features/module'");
+
+        // Nested import keeps module directory context
+        let input = r#"import { thing } from '../shared/thing.ts'"#;
+        let output = rewrite_local_imports(input, Path::new("features/dashboard/page.tsx"));
+        assert_eq!(output, "import { thing } from '/src/features/shared/thing'");
 
         // Double quotes
         let input = r#"import { x } from "../foo.js""#;
-        let output = rewrite_local_imports(input);
+        let output = rewrite_local_imports(input, Path::new("nested/entry.tsx"));
         assert_eq!(output, "import { x } from '/src/foo'");
 
         // Multiple imports in one file
         let input = r#"import { a } from './a.tsx';
 import { b } from '../b.ts';"#;
-        let output = rewrite_local_imports(input);
-        assert!(output.contains("from '/src/a'"));
+        let output = rewrite_local_imports(input, Path::new("nested/view.tsx"));
+        assert!(output.contains("from '/src/nested/a'"));
         assert!(output.contains("from '/src/b'"));
+
+        // Imports that walk above src root clamp to src root
+        let input = r#"import { root } from '../../../root.ts'"#;
+        let output = rewrite_local_imports(input, Path::new("nested/deep/page.tsx"));
+        assert_eq!(output, "import { root } from '/src/root'");
 
         // Absolute import should not change
         let input = r#"import { signal } from '/@runtime'"#;
-        let output = rewrite_local_imports(input);
+        let output = rewrite_local_imports(input, Path::new("main.tsx"));
         assert_eq!(output, input);
+    }
+
+    #[test]
+    fn test_transform_tsx_preserves_nested_import_context() {
+        let source = r#"
+import { ButtonRow } from './ButtonRow.tsx';
+const App = defineComponent(() => () => <ButtonRow />);
+"#;
+        let compiled = transform_tsx_at_path(source, Path::new("components/forms/Form.tsx")).unwrap();
+        assert!(compiled.js.contains("from '/src/components/forms/ButtonRow'"));
+    }
+
+    #[test]
+    fn test_transform_tsx_injects_lifecycle_imports() {
+        let source = r#"
+const App = defineComponent(() => {
+    onMount(() => console.log('mounted'));
+    return () => <div>Hello</div>;
+});
+"#;
+        let compiled = transform_tsx(source).unwrap();
+        assert!(compiled.js.contains("onMount"));
+        assert!(compiled.js.contains("onUnmount"));
     }
 
     #[test]

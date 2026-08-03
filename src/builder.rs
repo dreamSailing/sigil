@@ -54,20 +54,21 @@ pub fn build(root_dir: &Path, output_dir: &Path) -> Result<()> {
         let source = fs::read_to_string(src_file)?;
         let original_size = source.len();
         let is_tsx = src_file.extension().is_some_and(|e| e == "tsx");
+        let runtime_base = runtime_import_base(output_dir, &dest_path);
 
         let compiled = if is_tsx {
-            compiler::transform_tsx_with_options(&source, true)?.js
+            compiler::transform_tsx_with_options_at_path(&source, relative, true)?.js
         } else {
             // For non-TSX files, still apply basic minification
-            minify_js(&compiler::rewrite_local_imports(&source))
+            minify_js(&compiler::rewrite_local_imports(&source, relative))
         };
         
         // Replace /@runtime and /@ui paths in compiled JS for production
         let compiled = compiled
-            .replace("from '/@runtime'", "from './runtime/runtime.js'")
-            .replace("from '/@ui'", "from './runtime/ui.js'")
-            .replace("from \"/@runtime\"", "from \"./runtime/runtime.js\"")
-            .replace("from \"/@ui\"", "from \"./runtime/ui.js\"");
+            .replace("from '/@runtime'", &format!("from '{}/runtime.js'", runtime_base))
+            .replace("from '/@ui'", &format!("from '{}/ui.js'", runtime_base))
+            .replace("from \"/@runtime\"", &format!("from \"{}/runtime.js\"", runtime_base))
+            .replace("from \"/@ui\"", &format!("from \"{}/ui.js\"", runtime_base));
         
         let minified_size = compiled.len();
 
@@ -166,6 +167,13 @@ fn format_size(bytes: usize) -> String {
     } else {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     }
+}
+
+fn runtime_import_base(output_dir: &Path, source_path: &Path) -> String {
+    let parent = source_path.parent().unwrap_or(output_dir);
+    let relative_parent = parent.strip_prefix(output_dir).unwrap_or(parent);
+    let depth = relative_parent.components().count();
+    format!("{}runtime", "../".repeat(depth))
 }
 
 /// Recursively copy a directory (M4 fix helper)
@@ -368,6 +376,7 @@ fn collect_source_files(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_minify_strips_single_line_comment() {
@@ -414,5 +423,19 @@ mod tests {
         let output = strip_sse_script(html);
         assert!(!output.contains("EventSource"));
         assert!(output.contains("</body>"));
+    }
+
+    #[test]
+    fn test_runtime_import_base_for_nested_file() {
+        let output_dir = PathBuf::from("/tmp/dist");
+        let source_path = output_dir.join("src/features/view.js");
+        assert_eq!(runtime_import_base(&output_dir, &source_path), "../../runtime");
+    }
+
+    #[test]
+    fn test_runtime_import_base_for_top_level_file() {
+        let output_dir = PathBuf::from("/tmp/dist");
+        let source_path = output_dir.join("src/main.js");
+        assert_eq!(runtime_import_base(&output_dir, &source_path), "../runtime");
     }
 }

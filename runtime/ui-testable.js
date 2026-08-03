@@ -13,5 +13,6 @@ export {
     Heading,
     Text,
     Divider,
-    Stat
+    Stat,
+    Rating
 } from './ui-testable-temp.js';

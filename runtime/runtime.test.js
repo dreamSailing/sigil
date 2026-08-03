@@ -1,10 +1,11 @@
 // Copyright (c) 2026 DreamSailing
 // SPDX-License-Identifier: MIT
 
-// Runtime tests - run with: node --import ./runtime/setup-globals.js runtime/runtime.test.js
+// Runtime tests - run with:
+// node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs runtime/runtime.test.js
 
 import { signal, computed, effect, h, Fragment, reactiveTemplate, errorBoundary, defineComponent, onMount, onUnmount } from './runtime.js';
-import { Button, Card, Input, Badge, Avatar, Stack, Flex, Heading, Text, Divider, Stat } from './ui-testable.js';
+import { Button, Card, Input, Badge, Avatar, Stack, Flex, Heading, Text, Divider, Stat, Rating } from './ui-testable.js';
 
 function test_signal_get_set() {
     const s = signal(0);
@@ -131,6 +132,12 @@ function test_h_reactive_prop() {
 function test_h_class_name_object() {
     const el = h('div', { className: { active: true, hidden: false } });
     if (el.className !== 'active') throw new Error('className should be "active", got: ' + el.className);
+}
+
+function test_h_ref_callback_receives_element() {
+    let captured = null;
+    const el = h('div', { ref(node) { captured = node; } }, 'Hello');
+    if (captured !== el) throw new Error('ref callback should receive the created element');
 }
 
 function test_fragment_wraps_children() {
@@ -306,12 +313,18 @@ function test_stack_creates_element() {
     if (stack.tagName !== 'DIV') throw new Error('Stack should render a div');
 }
 
+function test_rating_creates_stars() {
+    const rating = Rating({ value: 3, max: 5 });
+    if (rating.tagName !== 'DIV') throw new Error('Rating should render a div');
+    if (rating.childNodes.length !== 5) throw new Error('Rating should render 5 stars, got ' + rating.childNodes.length);
+}
+
 const tests = [
     test_signal_get_set, test_signal_notifies_subscribers, test_signal_only_notifies_on_change,
     test_computed_derives_value, test_computed_is_readonly, test_computed_chained,
     test_effect_cleanup, test_effect_dispose,
     test_h_creates_element, test_h_with_children, test_h_calls_component_function,
-    test_h_reactive_prop, test_h_class_name_object,
+    test_h_reactive_prop, test_h_class_name_object, test_h_ref_callback_receives_element,
     test_fragment_wraps_children, test_reactive_template_resolves,
     test_error_boundary_catches, test_error_boundary_passes_through,
     test_define_component,
@@ -328,6 +341,7 @@ const tests = [
     test_stat_creates_element,
     test_flex_creates_element,
     test_stack_creates_element,
+    test_rating_creates_stars,
 ];
 
 let passed = 0, failed = 0;

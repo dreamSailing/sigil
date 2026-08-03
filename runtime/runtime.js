@@ -745,6 +745,10 @@ export function h(tag, props, ...children) {
                 el.selectedIndex = value;
             } else if (key === 'data-key') {
                 el[NODE_KEY] = value;
+            } else if (key === 'key') {
+                el[NODE_KEY] = value;
+            } else if ((key === 'ref' || key === 'data-ref') && typeof value === 'function') {
+                value(el);
             } else if (typeof value === 'object' && value !== null && value.get && !value._isTemplate) {
                 // Reactive attribute (signal) - with effect tracking for cleanup
                 if (key === 'value' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {

@@ -4,7 +4,7 @@
 // Sigil UI Component Library — v0.1.0
 // Headless + inline styles, zero external dependencies
 
-import { h, signal, computed, effect, onMount, onUnmount } from '/@runtime';
+import { h, signal, computed, effect, onMount, onUnmount, range } from '/@runtime';
 
 // --- Theme ---
 const theme = {
@@ -873,7 +873,7 @@ export function VirtualList(props) {
             overflow: 'auto',
             position: 'relative',
         }, p.style)),
-        'data-ref': function(el) { containerRef.current = el; }
+        ref: function(el) { containerRef.current = el; }
     },
         h('div', { style: css({ height: totalHeight + 'px', position: 'relative' }) },
             h('div', { style: css({
@@ -884,7 +884,7 @@ export function VirtualList(props) {
             }) },
                 visibleItems.map(function(data) {
                     return h('div', {
-                        key: p.keyField ? data.item[p.keyField] : data.index,
+                        'data-key': p.keyField ? data.item[p.keyField] : data.index,
                         style: css({ height: itemHeight + 'px', overflow: 'hidden' })
                     },
                         renderItem(data.item, data.index)

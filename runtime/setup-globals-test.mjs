@@ -2,20 +2,24 @@
 // SPDX-License-Identifier: MIT
 
 // Test setup - mock /@runtime import for Node.js testing
+import fs from 'node:fs';
 import * as runtime from './runtime.js';
 
 // Create a mock UI module that imports h from runtime instead of /@runtime
 const mockUI = `
 // Mock UI components for testing - imports h from runtime module
 ${
-    // Read ui.js and replace /@runtime import
-    require('fs').readFileSync(new URL('./ui.js', import.meta.url), 'utf-8')
-        .replace("import { h } from '/@runtime';", "import { h } from './runtime.js';")
+    // Read ui.js and replace the framework runtime entry with the local test runtime.
+    fs.readFileSync(new URL('./ui.js', import.meta.url), 'utf-8')
+        .replace(
+            /from '\/@runtime';/,
+            "from './runtime.js';"
+        )
 }
 `;
 
 // Write temporary testable UI file
-require('fs').writeFileSync(
+fs.writeFileSync(
     new URL('./ui-testable-temp.js', import.meta.url),
     mockUI
 );

@@ -564,6 +564,60 @@ declare module '/@ui' {
         style?: string | Record<string, string>;
     }
     export function Timeline(props: TimelineProps): HTMLElement;
+
+    export interface VirtualListProps<T = any> {
+        items?: T[];
+        itemHeight?: number;
+        height?: number;
+        overscan?: number;
+        keyField?: string;
+        renderItem?: (item: T, index: number) => any;
+        style?: string | Record<string, string>;
+    }
+    export function VirtualList<T = any>(props: VirtualListProps<T>): HTMLElement;
+
+    export interface AutoCompleteOption {
+        label: string;
+        value: string;
+    }
+    export interface AutoCompleteProps {
+        options?: Array<string | AutoCompleteOption>;
+        value?: string;
+        placeholder?: string;
+        onSelect?: (value: string) => void;
+        style?: string | Record<string, string>;
+    }
+    export function AutoComplete(props: AutoCompleteProps): HTMLElement;
+
+    export interface ColorPickerProps {
+        value?: string;
+        onChange?: (value: string) => void;
+        style?: string | Record<string, string>;
+    }
+    export function ColorPicker(props: ColorPickerProps): HTMLElement;
+
+    export interface RatingProps {
+        value?: number;
+        max?: number;
+        size?: string;
+        readOnly?: boolean;
+        onChange?: (value: number) => void;
+        style?: string | Record<string, string>;
+    }
+    export function Rating(props: RatingProps): HTMLElement;
+
+    export interface TreeNode {
+        id: string;
+        label: string;
+        children?: TreeNode[];
+        expanded?: boolean;
+    }
+    export interface TreeProps {
+        nodes?: TreeNode[];
+        onSelect?: (node: TreeNode) => void;
+        style?: string | Record<string, string>;
+    }
+    export function Tree(props: TreeProps): HTMLElement;
 }
 
 export {};
