@@ -1,5 +1,6 @@
 {
   "name": "sigil",
+  "type": "module",
   "license": "MIT",
   "repository": "https://github.com/DreamSailing/sigil",
   "private": true,
