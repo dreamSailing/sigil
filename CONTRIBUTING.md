@@ -95,7 +95,12 @@ cargo test
 
 **JavaScript runtime tests**:
 ```bash
-node --import ./runtime/setup-globals.js runtime/runtime.test.js
+npm test
+```
+
+**JavaScript runtime tests (strict / CI)**:
+```bash
+npm run test:strict
 ```
 
 ### Project Structure

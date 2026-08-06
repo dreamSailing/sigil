@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 // Runtime tests - run with:
-// node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs runtime/runtime.test.js
+// npm test
+// npm run test:strict
 
 import { signal, computed, effect, h, Fragment, reactiveTemplate, errorBoundary, defineComponent, onMount, onUnmount } from './runtime.js';
 import { Button, Card, Input, Badge, Avatar, Stack, Flex, Heading, Text, Divider, Stat, Rating } from './ui-testable.js';
@@ -344,13 +345,118 @@ const tests = [
     test_rating_creates_stars,
 ];
 
+const RUNNER_TIMEOUT_MS = Number(process.env.RUNTIME_TEST_RUNNER_TIMEOUT_MS || 30000);
+const TEST_TIMEOUT_MS = Number(process.env.RUNTIME_TEST_CASE_TIMEOUT_MS || 5000);
+const FAIL_ON_ACTIVE_HANDLES = process.env.RUNTIME_TEST_FAIL_ON_ACTIVE_HANDLES === '1';
+
 let passed = 0, failed = 0;
+let finished = false;
 console.log('\nRuntime Tests:');
+
+function getErrorMessage(error) {
+    if (error && error.stack) return error.stack;
+    if (error && error.message) return error.message;
+    return String(error);
+}
+
+function isStdioHandle(handle) {
+    return handle === process.stdin || handle === process.stdout || handle === process.stderr;
+}
+
+function formatResourceName(resource) {
+    if (!resource) return 'unknown';
+    if (resource.constructor && resource.constructor.name) return resource.constructor.name;
+    return typeof resource;
+}
+
+function getExtraActiveHandles() {
+    if (typeof process._getActiveHandles !== 'function') return [];
+    return process._getActiveHandles().filter(function(handle) {
+        return !isStdioHandle(handle);
+    });
+}
+
+function getActiveRequests() {
+    if (typeof process._getActiveRequests !== 'function') return [];
+    return process._getActiveRequests();
+}
+
+function dumpActiveResources() {
+    var handles = getExtraActiveHandles();
+    var requests = getActiveRequests();
+
+    if (handles.length === 0 && requests.length === 0) {
+        console.error('  (no extra active handles or requests)');
+        return { handles: handles, requests: requests };
+    }
+
+    console.error('  Active handles:');
+    handles.forEach(function(handle) {
+        console.error('   - ' + formatResourceName(handle));
+    });
+
+    console.error('  Active requests:');
+    requests.forEach(function(request) {
+        console.error('   - ' + formatResourceName(request));
+    });
+
+    return { handles: handles, requests: requests };
+}
+
+function finish() {
+    if (finished) return;
+    finished = true;
+    clearTimeout(runnerTimeout);
+
+    console.log('\n' + passed + ' passed, ' + failed + ' failed');
+
+    var resources = dumpActiveResources();
+    var exitCode = failed > 0 ? 1 : 0;
+
+    if (FAIL_ON_ACTIVE_HANDLES && (resources.handles.length > 0 || resources.requests.length > 0)) {
+        console.error('Failing because active handles/requests remain.');
+        exitCode = 1;
+    }
+
+    process.exit(exitCode);
+}
+
+function withTimeout(result, testName, timeoutMs) {
+    return new Promise(function(resolve, reject) {
+        var settled = false;
+        var timer = setTimeout(function() {
+            if (settled) return;
+            settled = true;
+            reject(new Error(testName + ' timed out after ' + timeoutMs + 'ms'));
+        }, timeoutMs);
+
+        if (typeof timer.unref === 'function') timer.unref();
+
+        result.then(function(value) {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value);
+        }).catch(function(error) {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            reject(error);
+        });
+    });
+}
+
+const runnerTimeout = setTimeout(function() {
+    console.error('\nTest runner timed out after ' + RUNNER_TIMEOUT_MS + 'ms');
+    dumpActiveResources();
+    process.exit(124);
+}, RUNNER_TIMEOUT_MS);
+
+if (typeof runnerTimeout.unref === 'function') runnerTimeout.unref();
 
 function runTests(tests, index) {
     if (index >= tests.length) {
-        console.log('\n' + passed + ' passed, ' + failed + ' failed');
-        if (failed > 0) process.exit(1);
+        finish();
         return;
     }
     
@@ -360,12 +466,12 @@ function runTests(tests, index) {
         
         // Check if test returned a promise
         if (result && typeof result.then === 'function') {
-            result.then(function() {
+            withTimeout(result, test.name, TEST_TIMEOUT_MS).then(function() {
                 console.log('  ✓ ' + test.name);
                 passed++;
                 runTests(tests, index + 1);
             }).catch(function(e) {
-                console.error('  ✗ ' + test.name + ': ' + e.message);
+                console.error('  ✗ ' + test.name + ': ' + getErrorMessage(e));
                 failed++;
                 runTests(tests, index + 1);
             });
@@ -375,7 +481,7 @@ function runTests(tests, index) {
             runTests(tests, index + 1);
         }
     } catch (e) {
-        console.error('  ✗ ' + test.name + ': ' + e.message);
+        console.error('  ✗ ' + test.name + ': ' + getErrorMessage(e));
         failed++;
         runTests(tests, index + 1);
     }

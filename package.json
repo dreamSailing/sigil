@@ -5,7 +5,8 @@
   "repository": "https://github.com/DreamSailing/sigil",
   "private": true,
   "scripts": {
-    "test": "node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs ./runtime/runtime.test.js"
+    "test": "node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs ./runtime/runtime.test.js",
+    "test:strict": "RUNTIME_TEST_FAIL_ON_ACTIVE_HANDLES=1 node --import ./runtime/setup-globals.js --import ./runtime/setup-globals-test.mjs ./runtime/runtime.test.js"
   },
   "dependencies": {
     "playwright": "^1.59.1"
